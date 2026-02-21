@@ -747,6 +747,9 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 			),
 		)
 	}
+
+	logging.InfoPersist(fmt.Sprintf("[Debug] Creating Provider for Agent: %s, Model: %s, Provider: %s, BaseURL: %q", agentName, model.ID, model.Provider, providerCfg.BaseURL))
+
 	agentProvider, err := provider.NewProvider(
 		model.Provider,
 		opts...,

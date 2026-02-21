@@ -91,9 +91,13 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 	}
 	switch providerName {
 	case models.ProviderCopilot:
+		client, err := newCopilotClient(clientOptions)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize Copilot provider: %w", err)
+		}
 		return &baseProvider[CopilotClient]{
 			options: clientOptions,
-			client:  newCopilotClient(clientOptions),
+			client:  client,
 		}, nil
 	case models.ProviderAnthropic:
 		return &baseProvider[AnthropicClient]{

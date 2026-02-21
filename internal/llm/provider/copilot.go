@@ -84,7 +84,7 @@ func (c *copilotClient) exchangeGitHubToken(githubToken string) (string, error) 
 	return tokenResp.Token, nil
 }
 
-func newCopilotClient(opts providerClientOptions) CopilotClient {
+func newCopilotClient(opts providerClientOptions) (CopilotClient, error) {
 	copilotOpts := copilotOptions{
 		reasoningEffort: "medium",
 	}
@@ -125,12 +125,9 @@ func newCopilotClient(opts providerClientOptions) CopilotClient {
 		}
 
 		if githubToken == "" {
-			logging.Error("GitHub token is required for Copilot provider. Set GITHUB_TOKEN environment variable, configure it in opencode.json, or ensure GitHub CLI/Copilot is properly authenticated.")
-			return &copilotClient{
-				providerOptions: opts,
-				options:         copilotOpts,
-				httpClient:      httpClient,
-			}
+			err := fmt.Errorf("GitHub token is required for Copilot provider. Set GITHUB_TOKEN environment variable, configure it in opencode.json, or ensure GitHub CLI/Copilot is properly authenticated")
+			logging.Error(err.Error())
+			return nil, err
 		}
 
 		// Create a temporary client for token exchange
@@ -140,16 +137,11 @@ func newCopilotClient(opts providerClientOptions) CopilotClient {
 			httpClient:      httpClient,
 		}
 
-		// Exchange GitHub token for bearer token
 		var err error
 		bearerToken, err = tempClient.exchangeGitHubToken(githubToken)
 		if err != nil {
 			logging.Error("Failed to exchange GitHub token for Copilot bearer token", "error", err)
-			return &copilotClient{
-				providerOptions: opts,
-				options:         copilotOpts,
-				httpClient:      httpClient,
-			}
+			return nil, err
 		}
 	}
 
@@ -184,7 +176,7 @@ func newCopilotClient(opts providerClientOptions) CopilotClient {
 		options:         copilotOpts,
 		client:          client,
 		httpClient:      httpClient,
-	}
+	}, nil
 }
 
 func (c *copilotClient) convertMessages(messages []message.Message) (copilotMessages []openai.ChatCompletionMessageParamUnion) {
