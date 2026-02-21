@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"myopencode/internal/config"
@@ -13,6 +14,7 @@ import (
 	"myopencode/internal/version"
 
 	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -116,9 +118,9 @@ func (b *mcpTool) Run(ctx context.Context, params tools.ToolCall) (tools.ToolRes
 		}
 		return runTool(ctx, c, b.tool.Name, params.Input)
 	case config.MCPSse:
-		c, err := client.NewSSEMCPClient(
+		c, err := client.NewStreamableHttpClient(
 			b.mcpConfig.URL,
-			client.WithHeaders(b.mcpConfig.Headers),
+			transport.WithHTTPHeaders(b.mcpConfig.Headers),
 		)
 		if err != nil {
 			return tools.NewTextErrorResponse(err.Error()), nil
@@ -144,6 +146,7 @@ func NewMcpTool(name string, tool mcp.Tool, permissions permission.Service, mcpC
 }
 
 var mcpTools []tools.BaseTool
+var mcpToolsOnce sync.Once
 
 func getTools(ctx context.Context, name string, m config.MCPServer, permissions permission.Service, c MCPClient) []tools.BaseTool {
 	var stdioTools []tools.BaseTool
@@ -173,42 +176,45 @@ func getTools(ctx context.Context, name string, m config.MCPServer, permissions 
 }
 
 func GetMcpTools(ctx context.Context, permissions permission.Service) []tools.BaseTool {
-	if len(mcpTools) > 0 {
-		return mcpTools
-	}
-	for name, m := range config.Get().MCPServers {
-		switch m.Type {
-		case config.MCPStdio:
-			c, err := client.NewStdioMCPClient(
-				m.Command,
-				m.Env,
-				m.Args...,
-			)
-			if err != nil {
-				logging.Error("error creating mcp client", "error", err)
-				continue
-			}
+	mcpToolsOnce.Do(func() {
+		servers := config.Get().MCPServers
+		logging.Info("Initializing MCP tools", "servers_count", len(servers))
+		for name, m := range servers {
+			logging.Info("Connecting to MCP server", "name", name, "type", string(m.Type), "url", m.URL)
+			switch m.Type {
+			case config.MCPStdio:
+				c, err := client.NewStdioMCPClient(
+					m.Command,
+					m.Env,
+					m.Args...,
+				)
+				if err != nil {
+					logging.Error("error creating mcp client", "error", err)
+					continue
+				}
 
-			mcpTools = append(mcpTools, getTools(ctx, name, m, permissions, c)...)
-		case config.MCPSse:
-			c, err := client.NewSSEMCPClient(
-				m.URL,
-				client.WithHeaders(m.Headers),
-			)
-			if err != nil {
-				logging.Error("error creating mcp client", "error", err)
-				continue
-			}
-			startCtx, startCancel := context.WithTimeout(ctx, 5*time.Second)
-			if err := c.Start(startCtx); err != nil {
+				mcpTools = append(mcpTools, getTools(ctx, name, m, permissions, c)...)
+			case config.MCPSse:
+				c, err := client.NewStreamableHttpClient(
+					m.URL,
+					transport.WithHTTPHeaders(m.Headers),
+				)
+				if err != nil {
+					logging.Error("error creating mcp client", "error", err)
+					continue
+				}
+				startCtx, startCancel := context.WithTimeout(ctx, 5*time.Second)
+				if err := c.Start(startCtx); err != nil {
+					startCancel()
+					logging.Warn("sse mcp server not reachable, skipping", "name", name, "error", err)
+					continue
+				}
 				startCancel()
-				logging.Warn("sse mcp server not reachable, skipping", "name", name, "error", err)
-				continue
+				mcpTools = append(mcpTools, getTools(ctx, name, m, permissions, c)...)
 			}
-			startCancel()
-			mcpTools = append(mcpTools, getTools(ctx, name, m, permissions, c)...)
 		}
-	}
+		logging.Info("MCP tools initialization complete", "tools_count", len(mcpTools))
+	})
 
 	return mcpTools
 }

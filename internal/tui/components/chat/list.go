@@ -97,6 +97,12 @@ func (m *messagesCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+	case tea.MouseMsg:
+		// Forward mouse events (scroll wheel) to viewport
+		u, cmd := m.viewport.Update(msg)
+		m.viewport = u
+		cmds = append(cmds, cmd)
+
 	case renderFinishedMsg:
 		m.rendering = false
 		m.viewport.GotoBottom()
@@ -473,6 +479,7 @@ func NewMessagesCmp(app *app.App) tea.Model {
 	s := spinner.New()
 	s.Spinner = spinner.Pulse
 	vp := viewport.New(0, 0)
+	vp.MouseWheelEnabled = true
 	attachmets := viewport.New(0, 0)
 	vp.KeyMap.PageUp = messageKeys.PageUp
 	vp.KeyMap.PageDown = messageKeys.PageDown
