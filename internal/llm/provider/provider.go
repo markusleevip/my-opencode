@@ -60,6 +60,7 @@ type Provider interface {
 
 type providerClientOptions struct {
 	apiKey        string
+	baseURL       string
 	model         models.Model
 	maxTokens     int64
 	systemMessage string
@@ -152,6 +153,19 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 			options: clientOptions,
 			client:  newOpenAIClient(clientOptions),
 		}, nil
+	case models.ProviderZhipu:
+		// Use URL from config, fall back to default Zhipu endpoint
+		zhipuURL := clientOptions.baseURL
+		if zhipuURL == "" {
+			zhipuURL = "https://api.z.ai/api/coding/paas/v4"
+		}
+		clientOptions.openaiOptions = append(clientOptions.openaiOptions,
+			WithOpenAIBaseURL(zhipuURL),
+		)
+		return &baseProvider[OpenAIClient]{
+			options: clientOptions,
+			client:  newOpenAIClient(clientOptions),
+		}, nil
 	case models.ProviderLocal:
 		clientOptions.openaiOptions = append(clientOptions.openaiOptions,
 			WithOpenAIBaseURL(os.Getenv("LOCAL_ENDPOINT")),
@@ -195,6 +209,12 @@ func (p *baseProvider[C]) StreamResponse(ctx context.Context, messages []message
 func WithAPIKey(apiKey string) ProviderClientOption {
 	return func(options *providerClientOptions) {
 		options.apiKey = apiKey
+	}
+}
+
+func WithProviderBaseURL(baseURL string) ProviderClientOption {
+	return func(options *providerClientOptions) {
+		options.baseURL = baseURL
 	}
 }
 

@@ -53,6 +53,7 @@ type Agent struct {
 // Provider defines configuration for an LLM provider.
 type Provider struct {
 	APIKey   string `json:"apiKey"`
+	BaseURL  string `json:"baseURL,omitempty"`
 	Disabled bool   `json:"disabled"`
 }
 
@@ -140,13 +141,13 @@ func Load(workingDir string, debug bool) (*Config, error) {
 	configureViper()
 	setDefaults(debug)
 
-	// Read global config
-	if err := readConfig(viper.ReadInConfig()); err != nil {
+	// First load local (project) config as the base
+	mergeLocalConfig(workingDir)
+
+	// Then read and merge global (home) config on top so it takes priority
+	if err := readConfig(viper.MergeInConfig()); err != nil {
 		return cfg, err
 	}
-
-	// Load and merge local config
-	mergeLocalConfig(workingDir)
 
 	setProviderDefaults()
 
@@ -270,6 +271,9 @@ func setProviderDefaults() {
 	if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
 		viper.SetDefault("providers.openrouter.apiKey", apiKey)
 	}
+	if apiKey := os.Getenv("ZHIPU_API_KEY"); apiKey != "" {
+		viper.SetDefault("providers.zhipu.apiKey", apiKey)
+	}
 	if apiKey := os.Getenv("XAI_API_KEY"); apiKey != "" {
 		viper.SetDefault("providers.xai.apiKey", apiKey)
 	}
@@ -384,6 +388,15 @@ func setProviderDefaults() {
 		viper.SetDefault("agents.title.model", models.VertexAIGemini25Flash)
 		return
 	}
+
+	// Zhipu AI configuration
+	if key := viper.GetString("providers.zhipu.apiKey"); strings.TrimSpace(key) != "" {
+		viper.SetDefault("agents.coder.model", models.ZhipuGLM47)
+		viper.SetDefault("agents.summarizer.model", models.ZhipuGLM47)
+		viper.SetDefault("agents.task.model", models.ZhipuGLM47)
+		viper.SetDefault("agents.title.model", models.ZhipuGLM47)
+		return
+	}
 }
 
 // hasAWSCredentials checks if AWS credentials are available in the environment.
@@ -448,13 +461,14 @@ func readConfig(err error) error {
 }
 
 // mergeLocalConfig loads and merges configuration from the local directory.
+// The local config is loaded as a base; global (home) config is merged on top with higher priority.
 func mergeLocalConfig(workingDir string) {
 	local := viper.New()
 	local.SetConfigName(fmt.Sprintf(".%s", appName))
 	local.SetConfigType("json")
 	local.AddConfigPath(workingDir)
 
-	// Merge local config if it exists
+	// Load local config as base if it exists
 	if err := local.ReadInConfig(); err == nil {
 		viper.MergeConfigMap(local.AllSettings())
 	}
@@ -643,6 +657,8 @@ func Validate() error {
 // getProviderAPIKey gets the API key for a provider from environment variables
 func getProviderAPIKey(provider models.ModelProvider) string {
 	switch provider {
+	case models.ProviderZhipu:
+		return os.Getenv("ZHIPU_API_KEY")
 	case models.ProviderAnthropic:
 		return os.Getenv("ANTHROPIC_API_KEY")
 	case models.ProviderOpenAI:

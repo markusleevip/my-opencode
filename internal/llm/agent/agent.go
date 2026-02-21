@@ -727,6 +727,7 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 	}
 	opts := []provider.ProviderClientOption{
 		provider.WithAPIKey(providerCfg.APIKey),
+		provider.WithProviderBaseURL(providerCfg.BaseURL),
 		provider.WithModel(model),
 		provider.WithSystemMessage(prompt.GetAgentPrompt(agentName, model.Provider)),
 		provider.WithMaxTokens(maxTokens),
