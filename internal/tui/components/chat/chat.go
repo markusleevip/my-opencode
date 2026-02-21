@@ -4,14 +4,15 @@ import (
 	"fmt"
 	"sort"
 
+	"myopencode/internal/config"
+	"myopencode/internal/message"
+	"myopencode/internal/session"
+	"myopencode/internal/tui/styles"
+	"myopencode/internal/tui/theme"
+	"myopencode/internal/version"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/message"
-	"github.com/opencode-ai/opencode/internal/session"
-	"github.com/opencode-ai/opencode/internal/tui/styles"
-	"github.com/opencode-ai/opencode/internal/tui/theme"
-	"github.com/opencode-ai/opencode/internal/version"
 )
 
 type SendMsg struct {
@@ -120,7 +121,7 @@ func logo(width int) string {
 }
 
 func repo(width int) string {
-	repo := "https://github.com/opencode-ai/opencode"
+	repo := "https://myopencode"
 	t := theme.CurrentTheme()
 
 	return styles.BaseStyle().
@@ -138,4 +139,3 @@ func cwd(width int) string {
 		Width(width).
 		Render(cwd)
 }
-

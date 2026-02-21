@@ -8,9 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"myopencode/internal/db"
+	"myopencode/internal/pubsub"
+
 	"github.com/google/uuid"
-	"github.com/opencode-ai/opencode/internal/db"
-	"github.com/opencode-ai/opencode/internal/pubsub"
 )
 
 const (

@@ -1,4 +1,4 @@
-module github.com/opencode-ai/opencode
+module myopencode
 
 go 1.24.0
 

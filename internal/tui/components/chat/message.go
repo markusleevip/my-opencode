@@ -8,16 +8,17 @@ import (
 	"strings"
 	"time"
 
+	"myopencode/internal/config"
+	"myopencode/internal/diff"
+	"myopencode/internal/llm/agent"
+	"myopencode/internal/llm/models"
+	"myopencode/internal/llm/tools"
+	"myopencode/internal/message"
+	"myopencode/internal/tui/styles"
+	"myopencode/internal/tui/theme"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/diff"
-	"github.com/opencode-ai/opencode/internal/llm/agent"
-	"github.com/opencode-ai/opencode/internal/llm/models"
-	"github.com/opencode-ai/opencode/internal/llm/tools"
-	"github.com/opencode-ai/opencode/internal/message"
-	"github.com/opencode-ai/opencode/internal/tui/styles"
-	"github.com/opencode-ai/opencode/internal/tui/theme"
 )
 
 type uiMessageType int

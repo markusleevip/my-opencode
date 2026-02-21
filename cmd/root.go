@@ -7,17 +7,18 @@ import (
 	"sync"
 	"time"
 
+	"myopencode/internal/app"
+	"myopencode/internal/config"
+	"myopencode/internal/db"
+	"myopencode/internal/format"
+	"myopencode/internal/llm/agent"
+	"myopencode/internal/logging"
+	"myopencode/internal/pubsub"
+	"myopencode/internal/tui"
+	"myopencode/internal/version"
+
 	tea "github.com/charmbracelet/bubbletea"
 	zone "github.com/lrstanley/bubblezone"
-	"github.com/opencode-ai/opencode/internal/app"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/db"
-	"github.com/opencode-ai/opencode/internal/format"
-	"github.com/opencode-ai/opencode/internal/llm/agent"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/pubsub"
-	"github.com/opencode-ai/opencode/internal/tui"
-	"github.com/opencode-ai/opencode/internal/version"
 	"github.com/spf13/cobra"
 )
 

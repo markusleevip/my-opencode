@@ -10,14 +10,15 @@ import (
 	"os"
 	"time"
 
+	"myopencode/internal/config"
+	"myopencode/internal/llm/models"
+	toolsPkg "myopencode/internal/llm/tools"
+	"myopencode/internal/logging"
+	"myopencode/internal/message"
+
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/shared"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/llm/models"
-	toolsPkg "github.com/opencode-ai/opencode/internal/llm/tools"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/message"
 )
 
 type copilotOptions struct {
@@ -668,4 +669,3 @@ func WithCopilotBearerToken(bearerToken string) CopilotOption {
 		options.bearerToken = bearerToken
 	}
 }
-

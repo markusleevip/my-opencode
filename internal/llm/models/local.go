@@ -10,7 +10,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/opencode-ai/opencode/internal/logging"
+	"myopencode/internal/logging"
+
 	"github.com/spf13/viper"
 )
 

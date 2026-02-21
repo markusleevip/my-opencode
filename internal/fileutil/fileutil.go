@@ -10,8 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"myopencode/internal/logging"
+
 	"github.com/bmatcuk/doublestar/v4"
-	"github.com/opencode-ai/opencode/internal/logging"
 )
 
 var (
