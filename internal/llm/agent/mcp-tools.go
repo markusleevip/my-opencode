@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"myopencode/internal/config"
 	"myopencode/internal/llm/tools"
@@ -122,6 +123,11 @@ func (b *mcpTool) Run(ctx context.Context, params tools.ToolCall) (tools.ToolRes
 		if err != nil {
 			return tools.NewTextErrorResponse(err.Error()), nil
 		}
+		startCtx, startCancel := context.WithTimeout(ctx, 5*time.Second)
+		defer startCancel()
+		if err := c.Start(startCtx); err != nil {
+			return tools.NewTextErrorResponse(fmt.Sprintf("error starting sse client: %v", err)), nil
+		}
 		return runTool(ctx, c, b.tool.Name, params.Input)
 	}
 
@@ -193,6 +199,13 @@ func GetMcpTools(ctx context.Context, permissions permission.Service) []tools.Ba
 				logging.Error("error creating mcp client", "error", err)
 				continue
 			}
+			startCtx, startCancel := context.WithTimeout(ctx, 5*time.Second)
+			if err := c.Start(startCtx); err != nil {
+				startCancel()
+				logging.Warn("sse mcp server not reachable, skipping", "name", name, "error", err)
+				continue
+			}
+			startCancel()
 			mcpTools = append(mcpTools, getTools(ctx, name, m, permissions, c)...)
 		}
 	}

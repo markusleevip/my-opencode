@@ -27,12 +27,12 @@ const (
 
 // MCPServer defines the configuration for a Model Control Protocol server.
 type MCPServer struct {
-	Command string            `json:"command"`
-	Env     []string          `json:"env"`
-	Args    []string          `json:"args"`
-	Type    MCPType           `json:"type"`
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers"`
+	Command string            `json:"command" mapstructure:"command"`
+	Env     []string          `json:"env" mapstructure:"env"`
+	Args    []string          `json:"args" mapstructure:"args"`
+	Type    MCPType           `json:"type" mapstructure:"type"`
+	URL     string            `json:"url" mapstructure:"url"`
+	Headers map[string]string `json:"headers" mapstructure:"headers"`
 }
 
 type AgentName string
@@ -46,16 +46,16 @@ const (
 
 // Agent defines configuration for different LLM models and their token limits.
 type Agent struct {
-	Model           models.ModelID `json:"model"`
-	MaxTokens       int64          `json:"maxTokens"`
-	ReasoningEffort string         `json:"reasoningEffort"` // For openai models low,medium,heigh
+	Model           models.ModelID `json:"model" mapstructure:"model"`
+	MaxTokens       int64          `json:"maxTokens" mapstructure:"maxTokens"`
+	ReasoningEffort string         `json:"reasoningEffort" mapstructure:"reasoningEffort"`
 }
 
 // Provider defines configuration for an LLM provider.
 type Provider struct {
-	APIKey   string `json:"apiKey"`
-	BaseURL  string `json:"baseURL,omitempty"`
-	Disabled bool   `json:"disabled"`
+	APIKey   string `json:"apiKey" mapstructure:"apiKey"`
+	BaseURL  string `json:"baseURL,omitempty" mapstructure:"baseURL"`
+	Disabled bool   `json:"disabled" mapstructure:"disabled"`
 }
 
 // DynamicModelConfig defines a model entry in a dynamic provider definition.
@@ -81,45 +81,45 @@ type DynamicProviderDef struct {
 
 // Data defines storage configuration.
 type Data struct {
-	Directory string `json:"directory,omitempty"`
+	Directory string `json:"directory,omitempty" mapstructure:"directory"`
 }
 
 // LSPConfig defines configuration for Language Server Protocol integration.
 type LSPConfig struct {
-	Disabled bool     `json:"enabled"`
-	Command  string   `json:"command"`
-	Args     []string `json:"args"`
-	Options  any      `json:"options"`
+	Disabled bool     `json:"enabled" mapstructure:"enabled"`
+	Command  string   `json:"command" mapstructure:"command"`
+	Args     []string `json:"args" mapstructure:"args"`
+	Options  any      `json:"options" mapstructure:"options"`
 }
 
 // TUIConfig defines the configuration for the Terminal User Interface.
 type TUIConfig struct {
-	Theme string `json:"theme,omitempty"`
+	Theme string `json:"theme,omitempty" mapstructure:"theme"`
 }
 
 // ShellConfig defines the configuration for the shell used by the bash tool.
 type ShellConfig struct {
-	Path string   `json:"path,omitempty"`
-	Args []string `json:"args,omitempty"`
+	Path string   `json:"path,omitempty" mapstructure:"path"`
+	Args []string `json:"args,omitempty" mapstructure:"args"`
 }
 
 // Config is the main configuration structure for the application.
 type Config struct {
-	Data         Data                              `json:"data"`
-	WorkingDir   string                            `json:"wd,omitempty"`
-	MCPServers   map[string]MCPServer              `json:"mcpServers,omitempty"`
-	Providers    map[models.ModelProvider]Provider `json:"providers,omitempty"`
-	Provider     map[string]DynamicProviderDef     `json:"provider,omitempty"`    // new-style dynamic providers
-	Model        string                            `json:"model,omitempty"`       // top-level default model (provider/model)
-	SmallModel   string                            `json:"small_model,omitempty"` // top-level lightweight model
-	LSP          map[string]LSPConfig              `json:"lsp,omitempty"`
-	Agents       map[AgentName]Agent               `json:"agents,omitempty"`
-	Debug        bool                              `json:"debug,omitempty"`
-	DebugLSP     bool                              `json:"debugLSP,omitempty"`
-	ContextPaths []string                          `json:"contextPaths,omitempty"`
-	TUI          TUIConfig                         `json:"tui"`
-	Shell        ShellConfig                       `json:"shell,omitempty"`
-	AutoCompact  bool                              `json:"autoCompact,omitempty"`
+	Data         Data                              `json:"data" mapstructure:"data"`
+	WorkingDir   string                            `json:"wd,omitempty" mapstructure:"wd"`
+	MCPServers   map[string]MCPServer              `json:"mcpServers,omitempty" mapstructure:"mcpservers"`
+	Providers    map[models.ModelProvider]Provider `json:"providers,omitempty" mapstructure:"providers"`
+	Provider     map[string]DynamicProviderDef     `json:"provider,omitempty" mapstructure:"provider"`
+	Model        string                            `json:"model,omitempty" mapstructure:"model"`
+	SmallModel   string                            `json:"small_model,omitempty" mapstructure:"small_model"`
+	LSP          map[string]LSPConfig              `json:"lsp,omitempty" mapstructure:"lsp"`
+	Agents       map[AgentName]Agent               `json:"agents,omitempty" mapstructure:"agents"`
+	Debug        bool                              `json:"debug,omitempty" mapstructure:"debug"`
+	DebugLSP     bool                              `json:"debugLSP,omitempty" mapstructure:"debuglsp"`
+	ContextPaths []string                          `json:"contextPaths,omitempty" mapstructure:"contextpaths"`
+	TUI          TUIConfig                         `json:"tui" mapstructure:"tui"`
+	Shell        ShellConfig                       `json:"shell,omitempty" mapstructure:"shell"`
+	AutoCompact  bool                              `json:"autoCompact,omitempty" mapstructure:"autocompact"`
 }
 
 // Application constants
@@ -158,9 +158,6 @@ func Load(workingDir string, debug bool) (*Config, error) {
 
 	cfg = &Config{
 		WorkingDir: workingDir,
-		MCPServers: make(map[string]MCPServer),
-		Providers:  make(map[models.ModelProvider]Provider),
-		LSP:        make(map[string]LSPConfig),
 	}
 
 	configureViper()
@@ -312,12 +309,10 @@ func setProviderDefaults() {
 		// api-key may be empty when using Entra ID credentials – that's okay
 		viper.SetDefault("providers.azure.apiKey", os.Getenv("AZURE_OPENAI_API_KEY"))
 	}
-	if apiKey, err := LoadGitHubToken(); err == nil && apiKey != "" {
-		viper.SetDefault("providers.copilot.apiKey", apiKey)
-		if viper.GetString("providers.copilot.apiKey") == "" {
-			viper.Set("providers.copilot.apiKey", apiKey)
-		}
-	}
+	// NOTE: Copilot provider is NOT auto-registered here.
+	// Users who want to use Copilot should explicitly configure it
+	// in their opencode.json file. This prevents 401 errors when
+	// a GitHub token exists but lacks Copilot subscription.
 
 }
 
@@ -360,14 +355,6 @@ func hasVertexAICredentials() bool {
 	return false
 }
 
-func hasCopilotCredentials() bool {
-	// Check for explicit Copilot parameters
-	if token, _ := LoadGitHubToken(); token != "" {
-		return true
-	}
-	return false
-}
-
 // readConfig handles the result of reading a configuration file.
 func readConfig(err error) error {
 	if err == nil {
@@ -396,12 +383,42 @@ func mergeLocalConfig(workingDir string) {
 	}
 }
 
-// applyDefaultValues sets default values for configuration fields that need processing.
 func applyDefaultValues() {
+	// Initialize core agents if missing
+	if cfg.Agents == nil {
+		cfg.Agents = make(map[AgentName]Agent)
+	}
+	requiredAgents := []AgentName{AgentCoder, AgentSummarizer, AgentTask, AgentTitle}
+	for _, name := range requiredAgents {
+		if _, exists := cfg.Agents[name]; !exists {
+			cfg.Agents[name] = Agent{}
+		}
+	}
+
+	// Initialize maps if nil (Viper may not create them if config section is absent)
+	if cfg.MCPServers == nil {
+		cfg.MCPServers = make(map[string]MCPServer)
+	}
+	if cfg.Providers == nil {
+		cfg.Providers = make(map[models.ModelProvider]Provider)
+	}
+	if cfg.LSP == nil {
+		cfg.LSP = make(map[string]LSPConfig)
+	}
+
+	logging.Info("MCP servers loaded from config", "count", len(cfg.MCPServers))
+	for name, srv := range cfg.MCPServers {
+		logging.Info("MCP server found", "name", name, "type", string(srv.Type), "url", srv.URL)
+	}
+
 	// Set default MCP type if not specified
 	for k, v := range cfg.MCPServers {
 		if v.Type == "" {
 			v.Type = MCPStdio
+			cfg.MCPServers[k] = v
+		} else if v.Type == "http" {
+			// Map logical http type to SSE protocol underneath
+			v.Type = MCPSse
 			cfg.MCPServers[k] = v
 		}
 	}
@@ -607,17 +624,22 @@ func getProviderAPIKey(provider models.ModelProvider) string {
 
 // setDefaultModelForAgent sets a default model for an agent based on available providers
 func setDefaultModelForAgent(agent AgentName) bool {
-	if hasCopilotCredentials() {
-		maxTokens := int64(5000)
-		if agent == AgentTitle {
-			maxTokens = 80
+	// 1. First check if any new-style dynamic provider is defined
+	for providerName, pInfo := range cfg.Provider {
+		if pInfo.APIKey != "" || pInfo.Options.APIKey != "" {
+			for modelName := range pInfo.Models {
+				modelID := models.ModelID(fmt.Sprintf("%s.%s", providerName, modelName))
+				maxTokens := int64(5000)
+				if agent == AgentTitle {
+					maxTokens = 80
+				}
+				cfg.Agents[agent] = Agent{
+					Model:     modelID,
+					MaxTokens: maxTokens,
+				}
+				return true
+			}
 		}
-
-		cfg.Agents[agent] = Agent{
-			Model:     models.CopilotGPT4o,
-			MaxTokens: maxTokens,
-		}
-		return true
 	}
 	// Check providers in order of preference
 	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
