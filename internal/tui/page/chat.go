@@ -9,6 +9,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/opencode-ai/opencode/internal/app"
 	"github.com/opencode-ai/opencode/internal/completions"
+	"github.com/opencode-ai/opencode/internal/config"
+	"github.com/opencode-ai/opencode/internal/llm/models"
 	"github.com/opencode-ai/opencode/internal/message"
 	"github.com/opencode-ai/opencode/internal/session"
 	"github.com/opencode-ai/opencode/internal/tui/components/chat"
@@ -20,13 +22,15 @@ import (
 var ChatPage PageID = "chat"
 
 type chatPage struct {
-	app                  *app.App
-	editor               layout.Container
-	messages             layout.Container
-	layout               layout.SplitPaneLayout
-	session              session.Session
-	completionDialog     dialog.CompletionDialog
-	showCompletionDialog bool
+	app                       *app.App
+	editor                    layout.Container
+	messages                  layout.Container
+	layout                    layout.SplitPaneLayout
+	session                   session.Session
+	completionDialog          dialog.CompletionDialog
+	modelCompletionDialog     dialog.CompletionDialog
+	showCompletionDialog      bool
+	showModelCompletionDialog bool
 }
 
 type ChatKeyMap struct {
@@ -67,6 +71,11 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dialog.CompletionDialogCloseMsg:
 		p.showCompletionDialog = false
 	case chat.SendMsg:
+		// Intercept /model command
+		if strings.HasPrefix(strings.TrimSpace(msg.Text), "/model ") {
+			modelArg := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(msg.Text), "/model "))
+			return p, p.switchModel(modelArg)
+		}
 		cmd := p.sendMessage(msg.Text, msg.Attachments)
 		if cmd != nil {
 			return p, cmd
@@ -76,7 +85,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if p.app.CoderAgent.IsBusy() {
 			return p, util.ReportWarn("Agent is busy, please wait before executing a command...")
 		}
-		
+
 		// Process the command content with arguments if any
 		content := msg.Content
 		if msg.Args != nil {
@@ -86,7 +95,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				content = strings.ReplaceAll(content, placeholder, value)
 			}
 		}
-		
+
 		// Handle custom command execution
 		cmd := p.sendMessage(content, nil)
 		if cmd != nil {
@@ -126,6 +135,17 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, contextCmd)
 
 		// Doesn't forward event if enter key is pressed
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if keyMsg.String() == "enter" {
+				return p, tea.Batch(cmds...)
+			}
+		}
+	}
+
+	if p.showModelCompletionDialog {
+		mc, mcCmd := p.modelCompletionDialog.Update(msg)
+		p.modelCompletionDialog = mc.(dialog.CompletionDialog)
+		cmds = append(cmds, mcCmd)
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			if keyMsg.String() == "enter" {
 				return p, tea.Batch(cmds...)
@@ -212,9 +232,28 @@ func (p *chatPage) BindingKeys() []key.Binding {
 	return bindings
 }
 
+// switchModel changes the active model for the coder agent by model ID.
+// Accepts "provider.model" or "provider/model" format.
+func (p *chatPage) switchModel(modelArg string) tea.Cmd {
+	// Normalize: replace / with . for internal ID
+	id := models.ModelID(strings.ReplaceAll(modelArg, "/", "."))
+	model, ok := models.SupportedModels[id]
+	if !ok {
+		return util.ReportWarn("Unknown model: " + modelArg)
+	}
+	_, err := p.app.CoderAgent.Update(config.AgentCoder, id)
+	if err != nil {
+		return util.ReportError(err)
+	}
+	return util.ReportInfo("Model switched to " + model.Name)
+}
+
 func NewChatPage(app *app.App) tea.Model {
 	cg := completions.NewFileAndFolderContextGroup()
 	completionDialog := dialog.NewCompletionDialogCmp(cg)
+
+	mcg := completions.NewModelContextGroup()
+	modelCompletionDialog := dialog.NewCompletionDialogCmp(mcg)
 
 	messagesContainer := layout.NewContainer(
 		chat.NewMessagesCmp(app),
@@ -225,10 +264,11 @@ func NewChatPage(app *app.App) tea.Model {
 		layout.WithBorder(true, false, false, false),
 	)
 	return &chatPage{
-		app:              app,
-		editor:           editorContainer,
-		messages:         messagesContainer,
-		completionDialog: completionDialog,
+		app:                   app,
+		editor:                editorContainer,
+		messages:              messagesContainer,
+		completionDialog:      completionDialog,
+		modelCompletionDialog: modelCompletionDialog,
 		layout: layout.NewSplitPane(
 			layout.WithLeftPanel(messagesContainer),
 			layout.WithBottomPanel(editorContainer),

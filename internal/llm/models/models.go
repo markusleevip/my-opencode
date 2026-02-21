@@ -98,3 +98,19 @@ func init() {
 	maps.Copy(SupportedModels, CopilotModels)
 	maps.Copy(SupportedModels, ZhipuModels)
 }
+
+// RegisterDynamicModel registers a model from a dynamic provider definition.
+// The model ID will be "{providerKey}.{modelKey}" (e.g. "zhipu.glm-4.7").
+// It is safe to call multiple times; existing registrations are overwritten.
+func RegisterDynamicModel(providerKey, modelKey, modelName string) ModelID {
+	id := ModelID(providerKey + "." + modelKey)
+	SupportedModels[id] = Model{
+		ID:               id,
+		Name:             modelName,
+		Provider:         ModelProvider(providerKey),
+		APIModel:         modelKey,
+		ContextWindow:    128000,
+		DefaultMaxTokens: 4096,
+	}
+	return id
+}

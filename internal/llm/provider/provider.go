@@ -177,6 +177,17 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 	case models.ProviderMock:
 		// TODO: implement mock client for test
 		panic("not implemented")
+	default:
+		// Dynamic / custom provider: route to OpenAI-compatible client if baseURL is set
+		if clientOptions.baseURL != "" {
+			clientOptions.openaiOptions = append(clientOptions.openaiOptions,
+				WithOpenAIBaseURL(clientOptions.baseURL),
+			)
+			return &baseProvider[OpenAIClient]{
+				options: clientOptions,
+				client:  newOpenAIClient(clientOptions),
+			}, nil
+		}
 	}
 	return nil, fmt.Errorf("provider not supported: %s", providerName)
 }

@@ -63,6 +63,7 @@ to assist developers in writing, debugging, and understanding code directly from
 		prompt, _ := cmd.Flags().GetString("prompt")
 		outputFormat, _ := cmd.Flags().GetString("output-format")
 		quiet, _ := cmd.Flags().GetBool("quiet")
+		modelFlag, _ := cmd.Flags().GetString("model")
 
 		// Validate format option
 		if !format.IsValid(outputFormat) {
@@ -85,6 +86,12 @@ to assist developers in writing, debugging, and understanding code directly from
 		_, err := config.Load(cwd, debug)
 		if err != nil {
 			return err
+		}
+
+		// --model flag overrides the config model for this session
+		if modelFlag != "" {
+			config.Get().Model = modelFlag
+			config.ApplyTopLevelModelOverride()
 		}
 
 		// Connect DB, this will also run migrations
@@ -294,6 +301,7 @@ func init() {
 	rootCmd.Flags().BoolP("debug", "d", false, "Debug")
 	rootCmd.Flags().StringP("cwd", "c", "", "Current working directory")
 	rootCmd.Flags().StringP("prompt", "p", "", "Prompt to run in non-interactive mode")
+	rootCmd.Flags().StringP("model", "m", "", "Override default model for this session (e.g. zhipu/glm-4.7)")
 
 	// Add format flag with validation logic
 	rootCmd.Flags().StringP("output-format", "f", format.Text.String(),

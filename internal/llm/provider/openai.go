@@ -264,6 +264,8 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 			acc := openai.ChatCompletionAccumulator{}
 			currentContent := ""
 			toolCalls := make([]message.ToolCall, 0)
+			// Track which tool calls we've started tracking
+			startedTools := make(map[int64]bool)
 
 			for openaiStream.Next() {
 				chunk := openaiStream.Current()
@@ -277,6 +279,22 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 						}
 						currentContent += choice.Delta.Content
 					}
+
+					// Detect tool call start
+					if choice.Delta.ToolCalls != nil {
+						for _, tcDelta := range choice.Delta.ToolCalls {
+							if !startedTools[tcDelta.Index] && tcDelta.ID != "" {
+								startedTools[tcDelta.Index] = true
+								eventChan <- ProviderEvent{
+									Type: EventToolUseStart,
+									ToolCall: &message.ToolCall{
+										ID:   tcDelta.ID,
+										Name: tcDelta.Function.Name,
+									},
+								}
+							}
+						}
+					}
 				}
 			}
 
@@ -286,6 +304,15 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 				finishReason := o.finishReason(string(acc.ChatCompletion.Choices[0].FinishReason))
 				if len(acc.ChatCompletion.Choices[0].Message.ToolCalls) > 0 {
 					toolCalls = append(toolCalls, o.toolCalls(acc.ChatCompletion)...)
+					// Send stop events for all completed tool calls
+					for _, tc := range toolCalls {
+						tcCopy := tc
+						tcCopy.Finished = true
+						eventChan <- ProviderEvent{
+							Type:     EventToolUseStop,
+							ToolCall: &tcCopy,
+						}
+					}
 				}
 				if len(toolCalls) > 0 {
 					finishReason = message.FinishReasonToolUse

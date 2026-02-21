@@ -57,6 +57,27 @@ type Provider struct {
 	Disabled bool   `json:"disabled"`
 }
 
+// DynamicModelConfig defines a model entry in a dynamic provider definition.
+type DynamicModelConfig struct {
+	Name string `json:"name" mapstructure:"name"`
+}
+
+// DynamicProviderOptions defines the options block for a dynamic provider.
+type DynamicProviderOptions struct {
+	BaseURL string `json:"baseURL" mapstructure:"baseURL"`
+	APIKey  string `json:"apiKey" mapstructure:"apiKey"`
+}
+
+// DynamicProviderDef defines an OpenCode-style provider definition.
+// Supports npm = "@ai-sdk/openai-compatible" for OpenAI-compatible endpoints.
+type DynamicProviderDef struct {
+	NPM     string                        `json:"npm" mapstructure:"npm"`
+	Name    string                        `json:"name" mapstructure:"name"`
+	APIKey  string                        `json:"apiKey" mapstructure:"apiKey"`
+	Options DynamicProviderOptions        `json:"options" mapstructure:"options"`
+	Models  map[string]DynamicModelConfig `json:"models" mapstructure:"models"`
+}
+
 // Data defines storage configuration.
 type Data struct {
 	Directory string `json:"directory,omitempty"`
@@ -87,6 +108,9 @@ type Config struct {
 	WorkingDir   string                            `json:"wd,omitempty"`
 	MCPServers   map[string]MCPServer              `json:"mcpServers,omitempty"`
 	Providers    map[models.ModelProvider]Provider `json:"providers,omitempty"`
+	Provider     map[string]DynamicProviderDef     `json:"provider,omitempty"`    // new-style dynamic providers
+	Model        string                            `json:"model,omitempty"`       // top-level default model (provider/model)
+	SmallModel   string                            `json:"small_model,omitempty"` // top-level lightweight model
 	LSP          map[string]LSPConfig              `json:"lsp,omitempty"`
 	Agents       map[AgentName]Agent               `json:"agents,omitempty"`
 	Debug        bool                              `json:"debug,omitempty"`
@@ -155,6 +179,12 @@ func Load(workingDir string, debug bool) (*Config, error) {
 	if err := viper.Unmarshal(cfg); err != nil {
 		return cfg, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
+
+	// Register dynamic providers from new-style "provider" config format
+	registerDynamicProviders()
+
+	// Apply top-level model / small_model to agents if not explicitly set
+	ApplyTopLevelModelOverride()
 
 	applyDefaultValues()
 	defaultLevel := slog.LevelInfo
@@ -993,4 +1023,119 @@ func LoadGitHubToken() (string, error) {
 	}
 
 	return "", fmt.Errorf("GitHub token not found in standard locations")
+}
+
+// registerDynamicProviders processes the new-style "provider" config field.
+// For each entry with npm = "@ai-sdk/openai-compatible", it registers models
+// into SupportedModels and injects provider credentials into cfg.Providers.
+func registerDynamicProviders() {
+	if cfg == nil || len(cfg.Provider) == 0 {
+		return
+	}
+	for providerKey, def := range cfg.Provider {
+		// Only support OpenAI-compatible providers or empty NPM for custom standard providers
+		if def.NPM != "@ai-sdk/openai-compatible" && def.NPM != "" {
+			continue
+		}
+
+		// Resolve API key: prefer top-level apiKey, fall back to options.apiKey
+		apiKey := def.APIKey
+		if apiKey == "" {
+			apiKey = def.Options.APIKey
+		}
+
+		// Resolve base URL
+		baseURL := def.Options.BaseURL
+
+		// Register all models declared in this provider
+		for modelKey, modelCfg := range def.Models {
+			name := modelCfg.Name
+			if name == "" {
+				name = modelKey
+			}
+			models.RegisterDynamicModel(providerKey, modelKey, name)
+		}
+
+		// Inject into the classic Providers map so provider routing works
+		providerID := models.ModelProvider(providerKey)
+		existing, exists := cfg.Providers[providerID]
+		if !exists {
+			cfg.Providers[providerID] = Provider{
+				APIKey:  apiKey,
+				BaseURL: baseURL,
+			}
+		} else {
+			// Merge: only overwrite if the existing values are empty
+			if existing.BaseURL == "" && baseURL != "" {
+				existing.BaseURL = baseURL
+			}
+			if existing.APIKey == "" && apiKey != "" {
+				existing.APIKey = apiKey
+			}
+			cfg.Providers[providerID] = existing
+		}
+	}
+}
+
+// ApplyTopLevelModelOverride maps the top-level "model" and "small_model" config fields
+// to the agents configuration, if the agents don't already have explicit models.
+// It is also called when the --model CLI flag is used to override the session model.
+func ApplyTopLevelModelOverride() {
+	if cfg == nil {
+		return
+	}
+
+	// Normalize provider/model or provider.model → internal ID (provider.model)
+	normalize := func(m string) models.ModelID {
+		if m == "" {
+			return ""
+		}
+		// Support both "provider/model" (new format) and "provider.model" (internal)
+		id := strings.ReplaceAll(m, "/", ".")
+		return models.ModelID(id)
+	}
+
+	mainID := normalize(cfg.Model)
+	smallID := normalize(cfg.SmallModel)
+
+	if cfg.Agents == nil {
+		cfg.Agents = make(map[AgentName]Agent)
+	}
+
+	// Apply main model to coder/summarizer/task if not set
+	if mainID != "" {
+		for _, agentName := range []AgentName{AgentCoder, AgentSummarizer, AgentTask} {
+			existing := cfg.Agents[agentName]
+			if existing.Model == "" {
+				existing.Model = mainID
+				cfg.Agents[agentName] = existing
+			}
+		}
+	}
+
+	// Apply small model to title agent if not set
+	effectiveSmall := smallID
+	if effectiveSmall == "" {
+		effectiveSmall = mainID
+	}
+	if effectiveSmall != "" {
+		existing := cfg.Agents[AgentTitle]
+		if existing.Model == "" {
+			existing.Model = effectiveSmall
+			cfg.Agents[AgentTitle] = existing
+		}
+	}
+
+	// Fallback: if coder has a model but other agents don't, inherit from coder.
+	// This handles the case where only agents.coder.model is configured.
+	coderModel := cfg.Agents[AgentCoder].Model
+	if coderModel != "" {
+		for _, agentName := range []AgentName{AgentTitle, AgentSummarizer, AgentTask} {
+			existing := cfg.Agents[agentName]
+			if existing.Model == "" {
+				existing.Model = coderModel
+				cfg.Agents[agentName] = existing
+			}
+		}
+	}
 }
