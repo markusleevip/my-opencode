@@ -237,6 +237,10 @@ func (a *agent) processGeneration(ctx context.Context, sessionID, content string
 	if err != nil {
 		return a.err(fmt.Errorf("failed to list messages: %w", err))
 	}
+
+	// Filter out invalid assistant messages that cause 400 errors
+	msgs = filterHistory(msgs)
+
 	if len(msgs) == 0 {
 		go func() {
 			defer logging.RecoverPanic("agent.Run", func() {
@@ -525,6 +529,8 @@ func (a *agent) Update(agentName config.AgentName, modelID models.ModelID) (mode
 		return models.Model{}, fmt.Errorf("failed to update config: %w", err)
 	}
 
+	// CreateAgentProviderWithModel will now use config.GetProvider which handles memory storage
+
 	// Use the provided modelID directly instead of reading from database
 	// This avoids race conditions and ensures we use the correct model
 	provider, err := CreateAgentProviderWithModel(agentName, modelID)
@@ -594,6 +600,7 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 			a.Publish(pubsub.CreatedEvent, event)
 			return
 		}
+		msgs = filterHistory(msgs)
 		summarizeCtx = context.WithValue(summarizeCtx, tools.SessionIDContextKey, sessionID)
 
 		if len(msgs) == 0 {
@@ -730,15 +737,14 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 }
 
 func CreateAgentProviderWithModel(agentName config.AgentName, modelID models.ModelID) (provider.Provider, error) {
-	cfg := config.Get()
 	model, ok := models.SupportedModels[modelID]
 	if !ok {
 		return nil, fmt.Errorf("model %s not supported", modelID)
 	}
 
-	providerCfg, ok := cfg.Providers[model.Provider]
+	providerCfg, ok := config.GetProvider(model.Provider)
 	if !ok {
-		return nil, fmt.Errorf("provider %s not supported", model.Provider)
+		return nil, fmt.Errorf("provider %s not found in registry", model.Provider)
 	}
 	if providerCfg.Disabled {
 		return nil, fmt.Errorf("provider %s is not enabled", model.Provider)
@@ -787,7 +793,6 @@ func CreateAgentProviderWithModel(agentName config.AgentName, modelID models.Mod
 }
 
 func createAgentProvider(agentName config.AgentName) (provider.Provider, error) {
-	cfg := config.Get()
 	modelID := config.ActiveModel(context.Background(), models.GPT4oMini)
 	if agentName == config.AgentTitle {
 		modelID = config.ActiveModel(context.Background(), models.GPT4oMini)
@@ -797,9 +802,9 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 		return nil, fmt.Errorf("model %s not supported", modelID)
 	}
 
-	providerCfg, ok := cfg.Providers[model.Provider]
+	providerCfg, ok := config.GetProvider(model.Provider)
 	if !ok {
-		return nil, fmt.Errorf("provider %s not supported", model.Provider)
+		return nil, fmt.Errorf("provider %s not found in registry", model.Provider)
 	}
 	if providerCfg.Disabled {
 		return nil, fmt.Errorf("provider %s is not enabled", model.Provider)
@@ -845,4 +850,35 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 	}
 
 	return agentProvider, nil
+}
+
+func filterHistory(msgs []message.Message) []message.Message {
+	filtered := make([]message.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if m.Role == message.Assistant {
+			hasContent := false
+			for _, p := range m.Parts {
+				switch v := p.(type) {
+				case message.TextContent:
+					if v.Text != "" {
+						hasContent = true
+					}
+				case message.ReasoningContent:
+					if v.Thinking != "" {
+						hasContent = true
+					}
+				case message.ImageURLContent, message.BinaryContent, message.ToolCall:
+					hasContent = true
+				}
+				if hasContent {
+					break
+				}
+			}
+			if !hasContent {
+				continue
+			}
+		}
+		filtered = append(filtered, m)
+	}
+	return filtered
 }

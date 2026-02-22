@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"myopencode/internal/llm/models"
@@ -157,6 +158,10 @@ var defaultContextPaths = []string{
 // Global configuration instance
 var cfg *Config
 
+// Memory storage for provider configurations to avoid repeated disk reads and ensure stability
+var memoryProviders = make(map[models.ModelProvider]Provider)
+var memoryMu sync.RWMutex
+
 // Load initializes the configuration from environment variables and config files.
 // If debug is true, debug mode is enabled and log level is set to debug.
 // It returns an error if configuration loading fails.
@@ -240,6 +245,24 @@ func Load(workingDir string, debug bool) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// Reload re-initializes the configuration from disk.
+func Reload() (*Config, error) {
+	var workingDir string
+	var debug bool
+	if cfg != nil {
+		workingDir = cfg.WorkingDir
+		debug = cfg.Debug
+	}
+
+	memoryMu.Lock()
+	// Clear memory cache to force re-reading from disk
+	memoryProviders = make(map[models.ModelProvider]Provider)
+	memoryMu.Unlock()
+
+	cfg = nil
+	return Load(workingDir, debug)
 }
 
 // configureViper sets up viper's configuration paths and environment variables.
@@ -430,14 +453,46 @@ func GetConfigDir() string {
 	return cfg.Data.Directory
 }
 
-// GetProvider gets the configuration for a provider.
-func GetProvider(provider models.ModelProvider) (Provider, bool) {
+// GetProvider gets the configuration for a provider, checking memory first.
+func GetProvider(providerID models.ModelProvider) (Provider, bool) {
+	memoryMu.RLock()
+	p, ok := memoryProviders[providerID]
+	memoryMu.RUnlock()
+	if ok {
+		return p, true
+	}
+
+	// Falls back to config file if not in memory
+	logging.Info("Provider configuration not in memory, reading from config file", "providerID", providerID)
+	if _, err := Reload(); err != nil {
+		logging.Error("Failed to reload config from file", "error", err)
+	}
+
+	// After reload, it should be in memory (via registerDynamicProviders calling SetProvider)
+	// or at least in cfg.Providers.
+	memoryMu.RLock()
+	p, ok = memoryProviders[providerID]
+	memoryMu.RUnlock()
+	if ok {
+		return p, true
+	}
+
 	if cfg != nil {
-		if p, ok := cfg.Providers[provider]; ok {
+		if p, ok := cfg.Providers[providerID]; ok {
+			// Cache it in memory for future use
+			SetProvider(providerID, p)
 			return p, true
 		}
 	}
 	return Provider{}, false
+}
+
+// SetProvider explicitly sets/updates the configuration for a provider in memory.
+func SetProvider(providerID models.ModelProvider, p Provider) {
+	memoryMu.Lock()
+	memoryProviders[providerID] = p
+	memoryMu.Unlock()
+	logging.Info("Updated provider config in memory", "providerID", providerID, "baseURL", p.BaseURL, "hasKey", p.APIKey != "")
 }
 
 func updateCfgFile(updateCfg func(config *Config)) error {
@@ -704,6 +759,9 @@ func registerDynamicProviders() {
 			cfg.Providers[providerID] = existing
 		}
 		logging.Info("Provider config", "providerID", providerID, "baseURL", cfg.Providers[providerID].BaseURL, "hasKey", cfg.Providers[providerID].APIKey != "")
+
+		// Also update the memory storage to ensure it's picked up
+		SetProvider(providerID, cfg.Providers[providerID])
 	}
 }
 
