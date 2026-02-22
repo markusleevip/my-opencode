@@ -7,6 +7,7 @@ import (
 
 	"myopencode/internal/llm/models"
 	"myopencode/internal/llm/tools"
+	"myopencode/internal/logging"
 	"myopencode/internal/message"
 )
 
@@ -184,6 +185,7 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 	default:
 		// Dynamic / custom provider: route to OpenAI-compatible client if baseURL is set
 		if clientOptions.baseURL != "" {
+			logging.Info(fmt.Sprintf("[NewProvider] Creating dynamic provider %s with baseURL: %s", providerName, clientOptions.baseURL))
 			clientOptions.openaiOptions = append(clientOptions.openaiOptions,
 				WithOpenAIBaseURL(clientOptions.baseURL),
 			)
@@ -192,6 +194,7 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 				client:  newOpenAIClient(clientOptions),
 			}, nil
 		}
+		logging.Warn(fmt.Sprintf("[NewProvider] Dynamic provider %s has empty baseURL", providerName))
 	}
 	return nil, fmt.Errorf("provider not supported: %s", providerName)
 }

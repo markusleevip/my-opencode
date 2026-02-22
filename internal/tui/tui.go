@@ -360,11 +360,16 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dialog.ModelSelectedMsg:
 		a.showModelDialog = false
 
+		logging.InfoPersist(fmt.Sprintf("[TUI] ModelSelectedMsg - Model ID: %q, Name: %s, Provider: %s",
+			msg.Model.ID, msg.Model.Name, msg.Model.Provider))
+
 		model, err := a.app.CoderAgent.Update(config.AgentCoder, msg.Model.ID)
 		if err != nil {
+			logging.InfoPersist(fmt.Sprintf("[TUI] Failed to update model: %v", err))
 			return a, util.ReportError(err)
 		}
 
+		logging.InfoPersist(fmt.Sprintf("[TUI] Model updated successfully: %s", model.Name))
 		return a, util.ReportInfo(fmt.Sprintf("Model changed to %s", model.Name))
 
 	case dialog.ShowInitDialogMsg:
@@ -551,6 +556,10 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case key.Matches(msg, keys.Logs):
+			// Toggle between chat and logs page
+			if a.currentPage == page.LogsPage {
+				return a, a.moveToPage(page.ChatPage)
+			}
 			return a, a.moveToPage(page.LogsPage)
 		case key.Matches(msg, keys.Help):
 			if a.showQuit {

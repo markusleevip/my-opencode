@@ -58,6 +58,10 @@ func newOpenAIClient(opts providerClientOptions) OpenAIClient {
 		}
 	}
 
+	// Log the actual base URL being used
+	logging.InfoPersist(fmt.Sprintf("[newOpenAIClient] Creating client - baseURL: %q, modelID: %s, apiModel: %q",
+		openaiOpts.baseURL, opts.model.ID, opts.model.APIModel))
+
 	client := openai.NewClient(openaiClientOptions...)
 	return &openaiClient{
 		providerOptions: opts,
@@ -167,6 +171,10 @@ func (o *openaiClient) preparedParams(messages []openai.ChatCompletionMessagePar
 		Tools:    tools,
 	}
 
+	// Debug: Log the model being used
+	logging.InfoPersist(fmt.Sprintf("[OpenAI Client] PreparedParams - Model ID: %s, APIModel: %q, Provider: %s, CanReason: %v",
+		o.providerOptions.model.ID, o.providerOptions.model.APIModel, o.providerOptions.model.Provider, o.providerOptions.model.CanReason))
+
 	if o.providerOptions.model.CanReason == true {
 		params.MaxCompletionTokens = openai.Int(o.providerOptions.maxTokens)
 		switch o.options.reasoningEffort {
@@ -251,12 +259,17 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 		logging.Debug("Prepared messages", "messages", string(jsonData))
 	}
 
+	// Log request details for debugging
+	logging.InfoPersist(fmt.Sprintf("[OpenAI Client] Starting stream request - URL: %s, Model: %s, APIModel: %q",
+		o.options.baseURL, o.providerOptions.model.ID, o.providerOptions.model.APIModel))
+
 	attempts := 0
 	eventChan := make(chan ProviderEvent)
 
 	go func() {
 		for {
 			attempts++
+			logging.InfoPersist(fmt.Sprintf("[OpenAI Client] Attempt %d - Model: %s", attempts, o.providerOptions.model.ID))
 			openaiStream := o.client.Chat.Completions.NewStreaming(
 				ctx,
 				params,
@@ -335,6 +348,8 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 			// If there is an error we are going to see if we can retry the call
 			retry, after, retryErr := o.shouldRetry(attempts, err)
 			if retryErr != nil {
+				logging.InfoPersist(fmt.Sprintf("[OpenAI Client] Request failed permanently - Model: %s, Provider: %s, Error: %v",
+					o.providerOptions.model.ID, o.providerOptions.model.Provider, retryErr))
 				eventChan <- ProviderEvent{Type: EventError, Error: retryErr}
 				close(eventChan)
 				return

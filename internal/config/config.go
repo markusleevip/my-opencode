@@ -215,6 +215,7 @@ func Load(workingDir string, debug bool) (*Config, error) {
 			}
 		}
 		logging.MessageDir = messagesPath
+		logging.InitPersistLog(messagesPath)
 
 		sloggingFileWriter, err := os.OpenFile(loggingFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o666)
 		if err != nil {
@@ -691,12 +692,14 @@ func registerDynamicProviders() {
 				BaseURL: baseURL,
 			}
 		} else {
-			// Merge: only overwrite if the existing values are empty
-			if existing.BaseURL == "" && baseURL != "" {
-				existing.BaseURL = baseURL
-			}
-			if existing.APIKey == "" && apiKey != "" {
+			// Merge: prioritize values from provider config over environment defaults
+			// Environment defaults are set in setProviderDefaults() and only contain API keys
+			// The provider config should take precedence for both APIKey and BaseURL
+			if apiKey != "" {
 				existing.APIKey = apiKey
+			}
+			if baseURL != "" {
+				existing.BaseURL = baseURL
 			}
 			cfg.Providers[providerID] = existing
 		}

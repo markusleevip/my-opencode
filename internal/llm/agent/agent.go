@@ -518,17 +518,43 @@ func (a *agent) Update(agentName config.AgentName, modelID models.ModelID) (mode
 		return models.Model{}, fmt.Errorf("cannot change model while processing requests")
 	}
 
+	logging.InfoPersist(fmt.Sprintf("[agent.Update] Called with modelID: %q (%s)", string(modelID), agentName))
+
 	if err := config.SaveActiveModel(context.Background(), modelID); err != nil {
+		logging.InfoPersist(fmt.Sprintf("[agent.Update] Failed to save model to DB: %v", err))
 		return models.Model{}, fmt.Errorf("failed to update config: %w", err)
 	}
 
-	provider, err := createAgentProvider(agentName)
+	// Use the provided modelID directly instead of reading from database
+	// This avoids race conditions and ensures we use the correct model
+	provider, err := CreateAgentProviderWithModel(agentName, modelID)
 	if err != nil {
+		logging.InfoPersist(fmt.Sprintf("[agent.Update] Failed to create provider: %v", err))
 		return models.Model{}, fmt.Errorf("failed to create provider for model %s: %w", modelID, err)
 	}
 
 	a.provider = provider
 
+	// Also update titleProvider and summarizeProvider to keep them in sync
+	// This prevents errors when generating titles or summaries after model switch
+	if a.titleProvider != nil {
+		titleProvider, err := CreateAgentProviderWithModel(config.AgentTitle, modelID)
+		if err != nil {
+			logging.InfoPersist(fmt.Sprintf("[agent.Update] Failed to update titleProvider: %v", err))
+		} else {
+			a.titleProvider = titleProvider
+		}
+	}
+	if a.summarizeProvider != nil {
+		summarizeProvider, err := CreateAgentProviderWithModel(config.AgentSummarizer, modelID)
+		if err != nil {
+			logging.InfoPersist(fmt.Sprintf("[agent.Update] Failed to update summarizeProvider: %v", err))
+		} else {
+			a.summarizeProvider = summarizeProvider
+		}
+	}
+
+	logging.InfoPersist(fmt.Sprintf("[agent.Update] Successfully updated to model: %s", a.provider.Model().ID))
 	return a.provider.Model(), nil
 }
 
@@ -703,12 +729,8 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-func createAgentProvider(agentName config.AgentName) (provider.Provider, error) {
+func CreateAgentProviderWithModel(agentName config.AgentName, modelID models.ModelID) (provider.Provider, error) {
 	cfg := config.Get()
-	modelID := config.ActiveModel(context.Background(), models.GPT4oMini)
-	if agentName == config.AgentTitle {
-		modelID = config.ActiveModel(context.Background(), models.GPT4oMini)
-	}
 	model, ok := models.SupportedModels[modelID]
 	if !ok {
 		return nil, fmt.Errorf("model %s not supported", modelID)
@@ -721,6 +743,10 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 	if providerCfg.Disabled {
 		return nil, fmt.Errorf("provider %s is not enabled", model.Provider)
 	}
+
+	// Debug logging for configuration
+	logging.InfoPersist(fmt.Sprintf("[createAgentProviderWithModel] Model: %s, Provider: %s, BaseURL from config: %q, APIKey length: %d",
+		model.ID, model.Provider, providerCfg.BaseURL, len(providerCfg.APIKey)))
 	maxTokens := model.DefaultMaxTokens
 	if agentName == config.AgentTitle {
 		maxTokens = 80
@@ -749,7 +775,66 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 		)
 	}
 
-	logging.InfoPersist(fmt.Sprintf("[Debug] Creating Provider for Agent: %s, Model: %s, Provider: %s, BaseURL: %q", agentName, model.ID, model.Provider, providerCfg.BaseURL))
+	agentProvider, err := provider.NewProvider(
+		model.Provider,
+		opts...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("could not create provider: %v", err)
+	}
+
+	return agentProvider, nil
+}
+
+func createAgentProvider(agentName config.AgentName) (provider.Provider, error) {
+	cfg := config.Get()
+	modelID := config.ActiveModel(context.Background(), models.GPT4oMini)
+	if agentName == config.AgentTitle {
+		modelID = config.ActiveModel(context.Background(), models.GPT4oMini)
+	}
+	model, ok := models.SupportedModels[modelID]
+	if !ok {
+		return nil, fmt.Errorf("model %s not supported", modelID)
+	}
+
+	providerCfg, ok := cfg.Providers[model.Provider]
+	if !ok {
+		return nil, fmt.Errorf("provider %s not supported", model.Provider)
+	}
+	if providerCfg.Disabled {
+		return nil, fmt.Errorf("provider %s is not enabled", model.Provider)
+	}
+
+	// Debug logging for configuration
+	logging.InfoPersist(fmt.Sprintf("[createAgentProvider] Model: %s, Provider: %s, BaseURL from config: %q, APIKey length: %d",
+		model.ID, model.Provider, providerCfg.BaseURL, len(providerCfg.APIKey)))
+	maxTokens := model.DefaultMaxTokens
+	if agentName == config.AgentTitle {
+		maxTokens = 80
+	}
+
+	opts := []provider.ProviderClientOption{
+		provider.WithAPIKey(providerCfg.APIKey),
+		provider.WithProviderBaseURL(providerCfg.BaseURL),
+		provider.WithModel(model),
+		provider.WithSystemMessage(prompt.GetAgentPrompt(agentName, model.Provider)),
+		provider.WithMaxTokens(maxTokens),
+	}
+	if model.Provider == models.ProviderOpenAI || model.Provider == models.ProviderLocal && model.CanReason {
+		opts = append(
+			opts,
+			provider.WithOpenAIOptions(
+				provider.WithReasoningEffort("medium"),
+			),
+		)
+	} else if model.Provider == models.ProviderAnthropic && model.CanReason && agentName == config.AgentCoder {
+		opts = append(
+			opts,
+			provider.WithAnthropicOptions(
+				provider.WithAnthropicShouldThinkFn(provider.DefaultShouldThinkFn),
+			),
+		)
+	}
 
 	agentProvider, err := provider.NewProvider(
 		model.Provider,
