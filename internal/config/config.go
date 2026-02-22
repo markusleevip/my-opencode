@@ -502,37 +502,69 @@ var DbGetSetting func(context.Context, string) (string, error)
 var DbSetSetting func(context.Context, string, string, int64, int64) error
 
 func ActiveModel(ctx context.Context, defaultFallback models.ModelID) models.ModelID {
-	if cfg != nil && cfg.Model != "" {
-		defaultFallback = models.ModelID(cfg.Model)
+	// Collect all available models from enabled providers first
+	var availableModels []string
+	if cfg != nil {
+		for _, m := range models.SupportedModels {
+			if pCfg, pOk := cfg.Providers[m.Provider]; pOk && !pCfg.Disabled {
+				availableModels = append(availableModels, string(m.ID))
+			}
+		}
+		sort.Strings(availableModels)
 	}
 
+	// Helper function to validate if a model is available
+	isModelAvailable := func(modelID models.ModelID) bool {
+		model, ok := models.SupportedModels[modelID]
+		if !ok {
+			return false
+		}
+		if cfg == nil {
+			return false
+		}
+		pCfg, pOk := cfg.Providers[model.Provider]
+		return pOk && !pCfg.Disabled
+	}
+
+	// Try to get from database first
 	if DbGetSetting != nil {
 		value, err := DbGetSetting(ctx, "active_model")
 		if err == nil && value != "" {
-			return models.ModelID(value)
-		}
-	}
-
-	// Validate if defaultFallback is supported by an enabled provider.
-	if cfg != nil {
-		fallbackModel, ok := models.SupportedModels[defaultFallback]
-		if ok {
-			if pCfg, pOk := cfg.Providers[fallbackModel.Provider]; !pOk || pCfg.Disabled {
-				// Provider missing or disabled. Pick the first available model deterministically.
-				var availableModels []string
-				for _, m := range models.SupportedModels {
-					if pCfg, pOk := cfg.Providers[m.Provider]; pOk && !pCfg.Disabled {
-						availableModels = append(availableModels, string(m.ID))
-					}
-				}
-				if len(availableModels) > 0 {
-					sort.Strings(availableModels)
-					return models.ModelID(availableModels[0])
-				}
+			dbModelID := models.ModelID(value)
+			if isModelAvailable(dbModelID) {
+				return dbModelID
 			}
+			// Database model is no longer available, clear it and fall through
+			logging.Warn("Database model no longer available, selecting alternative", "model", value)
 		}
 	}
 
+	// Use config file model if set
+	if cfg != nil && cfg.Model != "" {
+		configModelID := models.ModelID(cfg.Model)
+		if isModelAvailable(configModelID) {
+			return configModelID
+		}
+	}
+
+	// Use default fallback if available
+	if isModelAvailable(defaultFallback) {
+		return defaultFallback
+	}
+
+	// Pick the first available model deterministically
+	if len(availableModels) > 0 {
+		selectedModel := models.ModelID(availableModels[0])
+		// Auto-save the selected model to database for future use
+		if DbSetSetting != nil {
+			now := time.Now().UnixMilli()
+			_ = DbSetSetting(ctx, "active_model", string(selectedModel), now, now)
+		}
+		logging.Info("Auto-selected first available model", "model", selectedModel)
+		return selectedModel
+	}
+
+	// No models available at all
 	return defaultFallback
 }
 
