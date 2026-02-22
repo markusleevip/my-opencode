@@ -140,7 +140,7 @@ func loadLocalModels(models []localModel) {
 
 func convertLocalModel(model localModel) Model {
 	return Model{
-		ID:                  ModelID("local." + model.ID),
+		ID:                  ModelID("local::" + model.ID),
 		Name:                friendlyModelName(model.ID),
 		Provider:            ProviderLocal,
 		APIModel:            model.ID,

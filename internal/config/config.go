@@ -71,7 +71,8 @@ type Provider struct {
 
 // DynamicModelConfig defines a model entry in a dynamic provider definition.
 type DynamicModelConfig struct {
-	Name string `json:"name" mapstructure:"name"`
+	Name     string `json:"name" mapstructure:"name"`
+	APIModel string `json:"apiModel" mapstructure:"apiModel"`
 }
 
 // DynamicProviderOptions defines the options block for a dynamic provider.
@@ -734,8 +735,12 @@ func registerDynamicProviders() {
 			if name == "" {
 				name = modelKey
 			}
-			models.RegisterDynamicModel(providerKey, modelKey, name)
-			logging.Info("Registered dynamic model", "model", providerKey+"."+modelKey, "name", name)
+			apiModel := modelCfg.APIModel
+			if apiModel == "" {
+				apiModel = modelKey
+			}
+			models.RegisterDynamicModel(providerKey, modelKey, apiModel, name)
+			logging.Info("Registered dynamic model", "model", providerKey+"::"+modelKey, "name", name, "apiModel", apiModel)
 		}
 
 		// Inject into the classic Providers map so provider routing works

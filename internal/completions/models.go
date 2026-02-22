@@ -52,7 +52,7 @@ func (m *modelContextGroup) GetChildEntries(query string) ([]dialog.CompletionIt
 			// Normalize: if matched display name, find original id
 			clean := m
 			if strings.Contains(m, "/") {
-				clean = strings.ReplaceAll(m, "/", ".")
+				clean = strings.ReplaceAll(m, "/", "::")
 			}
 			if !seen[clean] {
 				seen[clean] = true

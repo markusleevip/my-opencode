@@ -102,13 +102,13 @@ func init() {
 // RegisterDynamicModel registers a model from a dynamic provider definition.
 // The model ID will be "{providerKey}.{modelKey}" (e.g. "zhipu.glm-4.7").
 // It is safe to call multiple times; existing registrations are overwritten.
-func RegisterDynamicModel(providerKey, modelKey, modelName string) ModelID {
-	id := ModelID(providerKey + "." + modelKey)
+func RegisterDynamicModel(providerKey, modelKey, apiModel, modelName string) ModelID {
+	id := ModelID(providerKey + "::" + modelKey)
 	SupportedModels[id] = Model{
 		ID:               id,
 		Name:             modelName,
 		Provider:         ModelProvider(providerKey),
-		APIModel:         modelKey,
+		APIModel:         apiModel,
 		ContextWindow:    128000,
 		DefaultMaxTokens: 4096,
 	}

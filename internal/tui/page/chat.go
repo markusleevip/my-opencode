@@ -236,8 +236,13 @@ func (p *chatPage) BindingKeys() []key.Binding {
 // switchModel changes the active model for the coder agent by model ID.
 // Accepts "provider.model" or "provider/model" format.
 func (p *chatPage) switchModel(modelArg string) tea.Cmd {
-	// Normalize: replace / with . for internal ID
-	id := models.ModelID(strings.ReplaceAll(modelArg, "/", "."))
+	// Normalize: replace / or . with :: for internal ID
+	normalized := modelArg
+	normalized = strings.ReplaceAll(normalized, "/", "::")
+	if !strings.Contains(normalized, "::") {
+		normalized = strings.ReplaceAll(normalized, ".", "::")
+	}
+	id := models.ModelID(normalized)
 	model, ok := models.SupportedModels[id]
 	if !ok {
 		return util.ReportWarn("Unknown model: " + modelArg)
