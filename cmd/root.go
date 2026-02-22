@@ -12,6 +12,7 @@ import (
 	"myopencode/internal/db"
 	"myopencode/internal/format"
 	"myopencode/internal/llm/agent"
+	"myopencode/internal/llm/models"
 	"myopencode/internal/logging"
 	"myopencode/internal/pubsub"
 	"myopencode/internal/tui"
@@ -89,21 +90,39 @@ to assist developers in writing, debugging, and understanding code directly from
 			return err
 		}
 
-		// --model flag overrides the config model for this session
-		if modelFlag != "" {
-			config.Get().Model = modelFlag
-			config.ApplyTopLevelModelOverride()
-		}
-
 		// Connect DB, this will also run migrations
 		conn, err := db.Connect()
 		if err != nil {
 			return err
 		}
 
+		// Initialize config DB callbacks
+		q := db.New(conn)
+		config.DbGetSetting = func(ctx context.Context, key string) (string, error) {
+			s, err := q.GetSetting(ctx, key)
+			if err != nil {
+				return "", err
+			}
+			return s.Value, nil
+		}
+		config.DbSetSetting = func(ctx context.Context, key, value string, createdAt, updatedAt int64) error {
+			_, err := q.SetSetting(ctx, db.SetSettingParams{
+				Key:       key,
+				Value:     value,
+				CreatedAt: createdAt,
+				UpdatedAt: updatedAt,
+			})
+			return err
+		}
+
 		// Create main context for the application
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		// --model flag overrides the config model for this session
+		if modelFlag != "" {
+			config.SaveActiveModel(ctx, models.ModelID(modelFlag))
+		}
 
 		app, err := app.New(ctx, conn)
 		if err != nil {

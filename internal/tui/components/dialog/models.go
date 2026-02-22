@@ -1,6 +1,7 @@
 package dialog
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -282,9 +283,7 @@ func (m *modelDialogCmp) setupModels() {
 }
 
 func GetSelectedModel(cfg *config.Config) models.Model {
-
-	agentCfg := cfg.Agents[config.AgentCoder]
-	selectedModelId := agentCfg.Model
+	selectedModelId := config.ActiveModel(context.Background(), models.GPT4oMini)
 	return models.SupportedModels[selectedModelId]
 }
 
@@ -324,9 +323,7 @@ func findProviderIndex(providers []models.ModelProvider, provider models.ModelPr
 }
 
 func (m *modelDialogCmp) setupModelsForProvider(provider models.ModelProvider) {
-	cfg := config.Get()
-	agentCfg := cfg.Agents[config.AgentCoder]
-	selectedModelId := agentCfg.Model
+	selectedModelId := config.ActiveModel(context.Background(), models.GPT4oMini)
 
 	m.provider = provider
 	m.models = getModelsForProvider(provider)

@@ -518,7 +518,7 @@ func (a *agent) Update(agentName config.AgentName, modelID models.ModelID) (mode
 		return models.Model{}, fmt.Errorf("cannot change model while processing requests")
 	}
 
-	if err := config.UpdateAgentModel(agentName, modelID); err != nil {
+	if err := config.SaveActiveModel(context.Background(), modelID); err != nil {
 		return models.Model{}, fmt.Errorf("failed to update config: %w", err)
 	}
 
@@ -705,13 +705,13 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 
 func createAgentProvider(agentName config.AgentName) (provider.Provider, error) {
 	cfg := config.Get()
-	agentConfig, ok := cfg.Agents[agentName]
-	if !ok {
-		return nil, fmt.Errorf("agent %s not found", agentName)
+	modelID := config.ActiveModel(context.Background(), models.GPT4oMini)
+	if agentName == config.AgentTitle {
+		modelID = config.ActiveModel(context.Background(), models.GPT4oMini)
 	}
-	model, ok := models.SupportedModels[agentConfig.Model]
+	model, ok := models.SupportedModels[modelID]
 	if !ok {
-		return nil, fmt.Errorf("model %s not supported", agentConfig.Model)
+		return nil, fmt.Errorf("model %s not supported", modelID)
 	}
 
 	providerCfg, ok := cfg.Providers[model.Provider]
@@ -722,9 +722,10 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 		return nil, fmt.Errorf("provider %s is not enabled", model.Provider)
 	}
 	maxTokens := model.DefaultMaxTokens
-	if agentConfig.MaxTokens > 0 {
-		maxTokens = agentConfig.MaxTokens
+	if agentName == config.AgentTitle {
+		maxTokens = 80
 	}
+
 	opts := []provider.ProviderClientOption{
 		provider.WithAPIKey(providerCfg.APIKey),
 		provider.WithProviderBaseURL(providerCfg.BaseURL),
@@ -736,7 +737,7 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 		opts = append(
 			opts,
 			provider.WithOpenAIOptions(
-				provider.WithReasoningEffort(agentConfig.ReasoningEffort),
+				provider.WithReasoningEffort("medium"),
 			),
 		)
 	} else if model.Provider == models.ProviderAnthropic && model.CanReason && agentName == config.AgentCoder {
