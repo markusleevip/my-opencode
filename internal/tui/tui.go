@@ -191,7 +191,9 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		msg.Height -= 1 // Make space for the status bar
+		if msg.Height > 0 {
+			msg.Height -= 1 // Make space for the status bar
+		}
 		a.width, a.height = msg.Width, msg.Height
 
 		s, _ := a.status.Update(msg)
@@ -747,7 +749,7 @@ func (a appModel) View() string {
 
 	components = append(components, a.status.View())
 
-	appView := lipgloss.JoinVertical(lipgloss.Top, components...)
+	appView := lipgloss.JoinVertical(lipgloss.Left, components...)
 
 	if a.showPermissions {
 		overlay := a.permissions.View()

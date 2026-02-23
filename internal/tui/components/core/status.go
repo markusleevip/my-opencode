@@ -162,12 +162,12 @@ func (m statusCmp) View() string {
 	modeView := modeStyle.Render(modeText)
 	status += modeView
 
-	availableWidht := max(0, m.width-lipgloss.Width(helpWidget)-lipgloss.Width(m.model())-lipgloss.Width(diagnostics)-tokenInfoWidth-lipgloss.Width(modeView))
+	availableWidth := max(0, m.width-lipgloss.Width(helpWidget)-lipgloss.Width(m.model())-lipgloss.Width(diagnostics)-tokenInfoWidth-lipgloss.Width(modeView))
 
 	if m.info.Msg != "" {
 		infoStyle := styles.Padded().
 			Foreground(t.Background()).
-			Width(availableWidht)
+			Width(availableWidth)
 
 		switch m.info.Type {
 		case util.InfoTypeInfo:
@@ -178,7 +178,7 @@ func (m statusCmp) View() string {
 			infoStyle = infoStyle.Background(t.Error())
 		}
 
-		infoWidth := availableWidht - 10
+		infoWidth := availableWidth - 2
 		// Truncate message if it's longer than available width
 		msg := m.info.Msg
 		if len(msg) > infoWidth && infoWidth > 0 {
@@ -189,13 +189,18 @@ func (m statusCmp) View() string {
 		status += styles.Padded().
 			Foreground(t.Text()).
 			Background(t.BackgroundSecondary()).
-			Width(availableWidht).
+			Width(availableWidth).
 			Render("")
 	}
 
 	status += diagnostics
 	status += m.model()
-	return status
+
+	// Ensure status bar is exactly one line and fits width
+	return lipgloss.NewStyle().
+		MaxWidth(m.width).
+		MaxHeight(1).
+		Render(status)
 }
 
 func (m *statusCmp) projectDiagnostics() string {

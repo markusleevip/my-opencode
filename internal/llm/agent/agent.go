@@ -315,28 +315,32 @@ func (a *agent) processGeneration(ctx context.Context, sessionID, content string
 
 		// Handle truncation (max_tokens hit)
 		if agentMessage.FinishReason() == message.FinishReasonMaxTokens {
-			logging.Info("Truncation detected (max_tokens), attempting auto-continuation...", "sessionID", sessionID)
-			// Add a "continue" message to prompt the model to finish its output
-			msgHistory = append(msgHistory, agentMessage, message.Message{
-				Role:  message.User,
-				Parts: []message.ContentPart{message.TextContent{Text: "continue"}},
-			})
+			if len(agentMessage.ToolCalls()) > 0 {
+				logging.Info("Truncation detected with tool calls, skipping auto-continuation to avoid API sequence error", "sessionID", sessionID)
+			} else {
+				logging.Info("Truncation detected (max_tokens), attempting auto-continuation...", "sessionID", sessionID)
+				// Add a "continue" message to prompt the model to finish its output
+				msgHistory = append(msgHistory, agentMessage, message.Message{
+					Role:  message.User,
+					Parts: []message.ContentPart{message.TextContent{Text: "continue"}},
+				})
 
-			// Get the next part of the response
-			nextAgentMessage, nextToolResults, nextErr := a.streamAndHandleEvents(ctx, sessionID, msgHistory)
-			if nextErr != nil {
-				return a.err(fmt.Errorf("failed to continue response: %w", nextErr))
+				// Get the next part of the response
+				nextAgentMessage, nextToolResults, nextErr := a.streamAndHandleEvents(ctx, sessionID, msgHistory)
+				if nextErr != nil {
+					return a.err(fmt.Errorf("failed to continue response: %w", nextErr))
+				}
+
+				// Merge nextAgentMessage into agentMessage
+				a.mergeMessages(&agentMessage, nextAgentMessage)
+				// Update the tool results if any (merging tool results is complex, usually only the final turn has them)
+				if nextToolResults != nil {
+					toolResults = nextToolResults
+				}
+
+				// After merging, we treat the merged message as the current assistant message
+				// and continue the loop to check if we need to call tools or finish.
 			}
-
-			// Merge nextAgentMessage into agentMessage
-			a.mergeMessages(&agentMessage, nextAgentMessage)
-			// Update the tool results if any (merging tool results is complex, usually only the final turn has them)
-			if nextToolResults != nil {
-				toolResults = nextToolResults
-			}
-
-			// After merging, we treat the merged message as the current assistant message
-			// and continue the loop to check if we need to call tools or finish.
 		}
 
 		if cfg.Debug {
@@ -573,15 +577,14 @@ func (a *agent) processEvent(ctx context.Context, sessionID string, assistantMsg
 	case provider.EventToolUseStart:
 		assistantMsg.AddToolCall(*event.ToolCall)
 		return a.messages.Update(ctx, *assistantMsg)
-	// TODO: see how to handle this
-	// case provider.EventToolUseDelta:
-	// 	tm := time.Unix(assistantMsg.UpdatedAt, 0)
-	// 	assistantMsg.AppendToolCallInput(event.ToolCall.ID, event.ToolCall.Input)
-	// 	if time.Since(tm) > 1000*time.Millisecond {
-	// 		err := a.messages.Update(ctx, *assistantMsg)
-	// 		assistantMsg.UpdatedAt = time.Now().Unix()
-	// 		return err
-	// 	}
+	case provider.EventToolUseDelta:
+		assistantMsg.AppendToolCallInput(event.ToolCall.ID, event.ToolCall.Input)
+		tm := time.Unix(assistantMsg.UpdatedAt, 0)
+		if time.Since(tm) > 500*time.Millisecond {
+			err := a.messages.Update(ctx, *assistantMsg)
+			assistantMsg.UpdatedAt = time.Now().Unix()
+			return err
+		}
 	case provider.EventToolUseStop:
 		assistantMsg.FinishToolCall(event.ToolCall.ID)
 		return a.messages.Update(ctx, *assistantMsg)
