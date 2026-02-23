@@ -38,7 +38,7 @@ var AnthropicModels = map[ModelID]Model{
 		CostPer1MOutCached:  0.03,
 		CostPer1MOut:        1.25,
 		ContextWindow:       200000,
-		DefaultMaxTokens:    4096,
+		DefaultMaxTokens:    16384,
 		SupportsAttachments: true,
 	},
 	Claude37Sonnet: {
@@ -65,7 +65,7 @@ var AnthropicModels = map[ModelID]Model{
 		CostPer1MOutCached:  0.08,
 		CostPer1MOut:        4.0,
 		ContextWindow:       200000,
-		DefaultMaxTokens:    4096,
+		DefaultMaxTokens:    16384,
 		SupportsAttachments: true,
 	},
 	Claude3Opus: {
@@ -78,7 +78,7 @@ var AnthropicModels = map[ModelID]Model{
 		CostPer1MOutCached:  1.50,
 		CostPer1MOut:        75.0,
 		ContextWindow:       200000,
-		DefaultMaxTokens:    4096,
+		DefaultMaxTokens:    16384,
 		SupportsAttachments: true,
 	},
 	Claude4Sonnet: {

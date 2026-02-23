@@ -332,7 +332,7 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 						}
 					}
 				}
-				if len(toolCalls) > 0 {
+				if len(toolCalls) > 0 && finishReason != message.FinishReasonMaxTokens {
 					finishReason = message.FinishReasonToolUse
 				}
 

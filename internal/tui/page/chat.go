@@ -254,6 +254,20 @@ func (p *chatPage) switchModel(modelArg string) tea.Cmd {
 		return p.applyModelSwitch(id, model.Name)
 	}
 
+	// 3. If it's just a provider name (e.g. "deepseek"), find the first model for that provider
+	for mid, m := range models.SupportedModels {
+		if strings.EqualFold(string(m.Provider), modelArg) {
+			return p.applyModelSwitch(mid, m.Name)
+		}
+	}
+
+	// 4. Try prefix match (e.g. "deep" -> "deepseek::chat")
+	for mid, m := range models.SupportedModels {
+		if strings.HasPrefix(strings.ToLower(string(mid)), strings.ToLower(modelArg)) {
+			return p.applyModelSwitch(mid, m.Name)
+		}
+	}
+
 	return util.ReportWarn("Unknown model: " + modelArg)
 }
 

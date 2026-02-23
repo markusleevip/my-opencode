@@ -294,6 +294,33 @@ func (a *agent) processGeneration(ctx context.Context, sessionID, content string
 			}
 			return a.err(fmt.Errorf("failed to process events: %w", err))
 		}
+
+		// Handle truncation (max_tokens hit)
+		if agentMessage.FinishReason() == message.FinishReasonMaxTokens {
+			logging.Info("Truncation detected (max_tokens), attempting auto-continuation...", "sessionID", sessionID)
+			// Add a "continue" message to prompt the model to finish its output
+			msgHistory = append(msgHistory, agentMessage, message.Message{
+				Role:  message.User,
+				Parts: []message.ContentPart{message.TextContent{Text: "continue"}},
+			})
+
+			// Get the next part of the response
+			nextAgentMessage, nextToolResults, nextErr := a.streamAndHandleEvents(ctx, sessionID, msgHistory)
+			if nextErr != nil {
+				return a.err(fmt.Errorf("failed to continue response: %w", nextErr))
+			}
+
+			// Merge nextAgentMessage into agentMessage
+			a.mergeMessages(&agentMessage, nextAgentMessage)
+			// Update the tool results if any (merging tool results is complex, usually only the final turn has them)
+			if nextToolResults != nil {
+				toolResults = nextToolResults
+			}
+
+			// After merging, we treat the merged message as the current assistant message
+			// and continue the loop to check if we need to call tools or finish.
+		}
+
 		if cfg.Debug {
 			seqId := (len(msgHistory) + 1) / 2
 			toolResultFilepath := logging.WriteToolResultsJson(sessionID, seqId, toolResults)
@@ -311,6 +338,61 @@ func (a *agent) processGeneration(ctx context.Context, sessionID, content string
 			Message: agentMessage,
 			Done:    true,
 		}
+	}
+}
+
+// mergeMessages merges the content of 'next' into 'orig'.
+// It handles concatenation of TextContent and ToolCall.Input.
+func (a *agent) mergeMessages(orig *message.Message, next message.Message) {
+	if len(next.Parts) == 0 {
+		return
+	}
+
+	// 1. Merge TextContent if both end/start with it
+	nextText := next.Content().Text
+	if nextText != "" {
+		orig.AppendContent(nextText)
+	}
+
+	// 2. Merge ToolCalls
+	origTCs := orig.ToolCalls()
+	nextTCs := next.ToolCalls()
+
+	if len(origTCs) > 0 && len(nextTCs) > 0 {
+		// If the last tool call of 'orig' is the first of 'next' (by ID or index), merge them
+		lastOrigTC := &origTCs[len(origTCs)-1]
+		firstNextTC := nextTCs[0]
+
+		// Usually, the model continues the same tool call if it was truncated
+		// If IDs match or if the first next TC has no name/ID (just input), we merge
+		if lastOrigTC.ID == firstNextTC.ID || (firstNextTC.ID == "" && firstNextTC.Name == "") {
+			lastOrigTC.Input += firstNextTC.Input
+			lastOrigTC.Finished = firstNextTC.Finished
+			// Update the part in 'orig'
+			orig.AddToolCall(*lastOrigTC)
+
+			// Append any additional tool calls from 'next'
+			if len(nextTCs) > 1 {
+				for _, tc := range nextTCs[1:] {
+					orig.AddToolCall(tc)
+				}
+			}
+		} else {
+			// Just append all new tool calls
+			for _, tc := range nextTCs {
+				orig.AddToolCall(tc)
+			}
+		}
+	} else if len(nextTCs) > 0 {
+		// Just append all new tool calls
+		for _, tc := range nextTCs {
+			orig.AddToolCall(tc)
+		}
+	}
+
+	// 3. Update FinishReason from the last message
+	if next.IsFinished() {
+		orig.AddFinish(next.FinishReason())
 	}
 }
 

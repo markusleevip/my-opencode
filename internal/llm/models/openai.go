@@ -80,7 +80,7 @@ var OpenAIModels = map[ModelID]Model{
 		CostPer1MOutCached:  0.0,
 		CostPer1MOut:        10.00,
 		ContextWindow:       128_000,
-		DefaultMaxTokens:    4096,
+		DefaultMaxTokens:    16384,
 		SupportsAttachments: true,
 	},
 	GPT4oMini: {

@@ -96,7 +96,7 @@ func RegisterDynamicModel(providerKey, modelKey, apiModel, modelName string, max
 		contextWindow = 128000
 	}
 	if maxTokens <= 0 {
-		maxTokens = 4096
+		maxTokens = 8192
 	}
 
 	model := Model{

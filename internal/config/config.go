@@ -143,7 +143,7 @@ const (
 	defaultLogLevel      = "info"
 	appName              = "opencode"
 
-	MaxTokensFallbackDefault = 4096
+	MaxTokensFallbackDefault = 8192
 )
 
 var defaultContextPaths = []string{
