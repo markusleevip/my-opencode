@@ -52,47 +52,74 @@ The application looks for configuration in the following locations (in order of 
 2. `$XDG_CONFIG_HOME/opencode/.opencode.json`
 3. `$HOME/.opencode.json`
 
-### New Dynamic Provider Configuration
+### Configuration Example (.opencode.json)
 
-You can now add any OpenAI-compatible provider directly in your `.opencode.json`:
-
-```json
-{
-  "provider": {
-    "deepseek": {
-      "name": "DeepSeek",
-      "apiKey": "your-api-key",
-      "options": {
-        "baseURL": "https://api.deepseek.com/v1"
-      },
-      "models": {
-        "chat": { "name": "DeepSeek Chat", "apiModel": "deepseek-chat" },
-        "reasoner": { "name": "DeepSeek R1", "apiModel": "deepseek-reasoner", "canReason": true }
-      }
-    }
-  }
-}
-```
-
-### Basic Configuration Structure
+Here is a comprehensive example of `.opencode.json` based on a real-world setup, supporting multiple dynamic providers, custom TUI themes, and shell settings:
 
 ```json
 {
   "data": {
     "directory": ".opencode"
   },
-  "providers": {
-    "openai": { "apiKey": "sk-...", "disabled": false },
-    "anthropic": { "apiKey": "sk-ant-...", "disabled": false }
-  },
-  "agents": {
-    "coder": {
-      "model": "anthropic::claude-3-7-sonnet-20250219",
-      "maxTokens": 8192
+  "provider": {
+    "deepseek": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Deepseek",
+      "apiKey": "sk-...",
+      "options": {
+        "baseURL": "https://api.deepseek.com/v1"
+      },
+      "models": {
+        "deepseek-chat": {
+          "name": "Deepseek Chat"
+        }
+      }
+    },
+    "zhipu": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Zhipu",
+      "options": {
+        "baseURL": "https://api.z.ai/api/coding/paas/v4",
+        "apiKey": "your-zhipu-api-key"
+      },
+      "models": {
+        "glm-4.7": {
+          "name": "GLM 4.7"
+        }
+      }
+    },
+    "bailian": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Bailian",
+      "apiKey": "sk-...",
+      "options": {
+        "baseURL": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      },
+      "models": {
+        "qwen3.5-plus": {
+          "name": "Qwen3.5 Plus",
+          "apiModel": "qwen3.5-plus",
+          "maxTokens": 8192,
+          "contextWindow": 128000,
+          "canReason": false,
+          "supportsAttachments": true
+        }
+      }
     }
   },
-  "debug": false,
-  "autoCompact": true
+  "tui": {
+    "theme": "default"
+  },
+  "shell": {
+    "path": "cmd",
+    "args": ["-l"]
+  },
+  "autoCompact": true,
+  "contextPaths": [
+    ".github/copilot-instructions.md",
+    ".cursorrules",
+    "CLAUDE.md"
+  ]
 }
 ```
 

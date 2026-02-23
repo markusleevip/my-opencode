@@ -6,6 +6,7 @@
 *.dylib
 .claude/
 CLAUDE.md
+.opencode/
 
 # Test binary, built with `go test -c`
 *.test
