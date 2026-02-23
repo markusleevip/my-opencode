@@ -9,10 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"myopencode/internal/config"
+	"myopencode/internal/permission"
+
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/PuerkitoBio/goquery"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/permission"
 )
 
 type FetchParams struct {

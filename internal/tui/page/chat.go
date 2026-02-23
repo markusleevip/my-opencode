@@ -4,29 +4,34 @@ import (
 	"context"
 	"strings"
 
+	"myopencode/internal/app"
+	"myopencode/internal/completions"
+	"myopencode/internal/config"
+	"myopencode/internal/llm/models"
+	"myopencode/internal/message"
+	"myopencode/internal/session"
+	"myopencode/internal/tui/components/chat"
+	"myopencode/internal/tui/components/dialog"
+	"myopencode/internal/tui/layout"
+	"myopencode/internal/tui/util"
+
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/opencode-ai/opencode/internal/app"
-	"github.com/opencode-ai/opencode/internal/completions"
-	"github.com/opencode-ai/opencode/internal/message"
-	"github.com/opencode-ai/opencode/internal/session"
-	"github.com/opencode-ai/opencode/internal/tui/components/chat"
-	"github.com/opencode-ai/opencode/internal/tui/components/dialog"
-	"github.com/opencode-ai/opencode/internal/tui/layout"
-	"github.com/opencode-ai/opencode/internal/tui/util"
 )
 
 var ChatPage PageID = "chat"
 
 type chatPage struct {
-	app                  *app.App
-	editor               layout.Container
-	messages             layout.Container
-	layout               layout.SplitPaneLayout
-	session              session.Session
-	completionDialog     dialog.CompletionDialog
-	showCompletionDialog bool
+	app                       *app.App
+	editor                    layout.Container
+	messages                  layout.Container
+	layout                    layout.SplitPaneLayout
+	session                   session.Session
+	completionDialog          dialog.CompletionDialog
+	modelCompletionDialog     dialog.CompletionDialog
+	showCompletionDialog      bool
+	showModelCompletionDialog bool
 }
 
 type ChatKeyMap struct {
@@ -67,6 +72,11 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dialog.CompletionDialogCloseMsg:
 		p.showCompletionDialog = false
 	case chat.SendMsg:
+		// Intercept /model command
+		if strings.HasPrefix(strings.TrimSpace(msg.Text), "/model ") {
+			modelArg := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(msg.Text), "/model "))
+			return p, p.switchModel(modelArg)
+		}
 		cmd := p.sendMessage(msg.Text, msg.Attachments)
 		if cmd != nil {
 			return p, cmd
@@ -76,7 +86,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if p.app.CoderAgent.IsBusy() {
 			return p, util.ReportWarn("Agent is busy, please wait before executing a command...")
 		}
-		
+
 		// Process the command content with arguments if any
 		content := msg.Content
 		if msg.Args != nil {
@@ -86,7 +96,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				content = strings.ReplaceAll(content, placeholder, value)
 			}
 		}
-		
+
 		// Handle custom command execution
 		cmd := p.sendMessage(content, nil)
 		if cmd != nil {
@@ -126,6 +136,17 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, contextCmd)
 
 		// Doesn't forward event if enter key is pressed
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			if keyMsg.String() == "enter" {
+				return p, tea.Batch(cmds...)
+			}
+		}
+	}
+
+	if p.showModelCompletionDialog {
+		mc, mcCmd := p.modelCompletionDialog.Update(msg)
+		p.modelCompletionDialog = mc.(dialog.CompletionDialog)
+		cmds = append(cmds, mcCmd)
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			if keyMsg.String() == "enter" {
 				return p, tea.Batch(cmds...)
@@ -212,9 +233,58 @@ func (p *chatPage) BindingKeys() []key.Binding {
 	return bindings
 }
 
+// switchModel changes the active model for the coder agent by model ID.
+// Accepts "provider.model" or "provider/model" format.
+func (p *chatPage) switchModel(modelArg string) tea.Cmd {
+	// 1. Try exact match first
+	id := models.ModelID(modelArg)
+	if _, ok := models.SupportedModels[id]; ok {
+		return p.applyModelSwitch(id, modelArg)
+	}
+
+	// 2. Try normalizing "provider/model" or "provider.model" to "provider::model"
+	// We only replace the FIRST occurrence of / or . to avoid breaking version numbers like qwen3.5
+	normalized := modelArg
+	if idx := strings.IndexAny(normalized, "/."); idx != -1 {
+		normalized = normalized[:idx] + "::" + normalized[idx+1:]
+	}
+
+	id = models.ModelID(normalized)
+	if model, ok := models.SupportedModels[id]; ok {
+		return p.applyModelSwitch(id, model.Name)
+	}
+
+	// 3. If it's just a provider name (e.g. "deepseek"), find the first model for that provider
+	for mid, m := range models.SupportedModels {
+		if strings.EqualFold(string(m.Provider), modelArg) {
+			return p.applyModelSwitch(mid, m.Name)
+		}
+	}
+
+	// 4. Try prefix match (e.g. "deep" -> "deepseek::chat")
+	for mid, m := range models.SupportedModels {
+		if strings.HasPrefix(strings.ToLower(string(mid)), strings.ToLower(modelArg)) {
+			return p.applyModelSwitch(mid, m.Name)
+		}
+	}
+
+	return util.ReportWarn("Unknown model: " + modelArg)
+}
+
+func (p *chatPage) applyModelSwitch(id models.ModelID, displayName string) tea.Cmd {
+	_, err := p.app.CoderAgent.Update(config.AgentCoder, id)
+	if err != nil {
+		return util.ReportError(err)
+	}
+	return util.ReportInfo("Model switched to " + displayName)
+}
+
 func NewChatPage(app *app.App) tea.Model {
 	cg := completions.NewFileAndFolderContextGroup()
 	completionDialog := dialog.NewCompletionDialogCmp(cg)
+
+	mcg := completions.NewModelContextGroup()
+	modelCompletionDialog := dialog.NewCompletionDialogCmp(mcg)
 
 	messagesContainer := layout.NewContainer(
 		chat.NewMessagesCmp(app),
@@ -225,10 +295,11 @@ func NewChatPage(app *app.App) tea.Model {
 		layout.WithBorder(true, false, false, false),
 	)
 	return &chatPage{
-		app:              app,
-		editor:           editorContainer,
-		messages:         messagesContainer,
-		completionDialog: completionDialog,
+		app:                   app,
+		editor:                editorContainer,
+		messages:              messagesContainer,
+		completionDialog:      completionDialog,
+		modelCompletionDialog: modelCompletionDialog,
 		layout: layout.NewSplitPane(
 			layout.WithLeftPanel(messagesContainer),
 			layout.WithBottomPanel(editorContainer),

@@ -8,14 +8,15 @@ import (
 	"io"
 	"time"
 
+	"myopencode/internal/config"
+	"myopencode/internal/llm/models"
+	"myopencode/internal/llm/tools"
+	"myopencode/internal/logging"
+	"myopencode/internal/message"
+
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/shared"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/llm/models"
-	"github.com/opencode-ai/opencode/internal/llm/tools"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/message"
 )
 
 type openaiOptions struct {
@@ -56,6 +57,10 @@ func newOpenAIClient(opts providerClientOptions) OpenAIClient {
 			openaiClientOptions = append(openaiClientOptions, option.WithHeader(key, value))
 		}
 	}
+
+	// Log the actual base URL being used
+	logging.InfoPersist(fmt.Sprintf("[newOpenAIClient] Creating client - baseURL: %q, modelID: %s, apiModel: %q",
+		openaiOpts.baseURL, opts.model.ID, opts.model.APIModel))
 
 	client := openai.NewClient(openaiClientOptions...)
 	return &openaiClient{
@@ -163,8 +168,16 @@ func (o *openaiClient) preparedParams(messages []openai.ChatCompletionMessagePar
 	params := openai.ChatCompletionNewParams{
 		Model:    openai.ChatModel(o.providerOptions.model.APIModel),
 		Messages: messages,
-		Tools:    tools,
 	}
+
+	// Only set Tools if non-empty - some APIs (e.g., Dashscope/Qwen) reject empty tools arrays with 400 errors
+	if len(tools) > 0 {
+		params.Tools = tools
+	}
+
+	// Debug: Log the model being used
+	logging.InfoPersist(fmt.Sprintf("[OpenAI Client] PreparedParams - Model ID: %s, APIModel: %q, Provider: %s, CanReason: %v, Tools: %d",
+		o.providerOptions.model.ID, o.providerOptions.model.APIModel, o.providerOptions.model.Provider, o.providerOptions.model.CanReason, len(tools)))
 
 	if o.providerOptions.model.CanReason == true {
 		params.MaxCompletionTokens = openai.Int(o.providerOptions.maxTokens)
@@ -250,12 +263,17 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 		logging.Debug("Prepared messages", "messages", string(jsonData))
 	}
 
+	// Log request details for debugging
+	logging.InfoPersist(fmt.Sprintf("[OpenAI Client] Starting stream request - URL: %s, Model: %s, APIModel: %q",
+		o.options.baseURL, o.providerOptions.model.ID, o.providerOptions.model.APIModel))
+
 	attempts := 0
 	eventChan := make(chan ProviderEvent)
 
 	go func() {
 		for {
 			attempts++
+			logging.InfoPersist(fmt.Sprintf("[OpenAI Client] Attempt %d - Model: %s", attempts, o.providerOptions.model.ID))
 			openaiStream := o.client.Chat.Completions.NewStreaming(
 				ctx,
 				params,
@@ -264,6 +282,8 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 			acc := openai.ChatCompletionAccumulator{}
 			currentContent := ""
 			toolCalls := make([]message.ToolCall, 0)
+			// Track which tool calls we've started tracking
+			startedTools := make(map[int64]bool)
 
 			for openaiStream.Next() {
 				chunk := openaiStream.Current()
@@ -277,6 +297,22 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 						}
 						currentContent += choice.Delta.Content
 					}
+
+					// Detect tool call start
+					if choice.Delta.ToolCalls != nil {
+						for _, tcDelta := range choice.Delta.ToolCalls {
+							if !startedTools[tcDelta.Index] && tcDelta.ID != "" {
+								startedTools[tcDelta.Index] = true
+								eventChan <- ProviderEvent{
+									Type: EventToolUseStart,
+									ToolCall: &message.ToolCall{
+										ID:   tcDelta.ID,
+										Name: tcDelta.Function.Name,
+									},
+								}
+							}
+						}
+					}
 				}
 			}
 
@@ -286,8 +322,17 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 				finishReason := o.finishReason(string(acc.ChatCompletion.Choices[0].FinishReason))
 				if len(acc.ChatCompletion.Choices[0].Message.ToolCalls) > 0 {
 					toolCalls = append(toolCalls, o.toolCalls(acc.ChatCompletion)...)
+					// Send stop events for all completed tool calls
+					for _, tc := range toolCalls {
+						tcCopy := tc
+						tcCopy.Finished = true
+						eventChan <- ProviderEvent{
+							Type:     EventToolUseStop,
+							ToolCall: &tcCopy,
+						}
+					}
 				}
-				if len(toolCalls) > 0 {
+				if len(toolCalls) > 0 && finishReason != message.FinishReasonMaxTokens {
 					finishReason = message.FinishReasonToolUse
 				}
 
@@ -307,6 +352,8 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 			// If there is an error we are going to see if we can retry the call
 			retry, after, retryErr := o.shouldRetry(attempts, err)
 			if retryErr != nil {
+				logging.InfoPersist(fmt.Sprintf("[OpenAI Client] Request failed permanently - Model: %s, Provider: %s, Error: %v",
+					o.providerOptions.model.ID, o.providerOptions.model.Provider, retryErr))
 				eventChan <- ProviderEvent{Type: EventError, Error: retryErr}
 				close(eventChan)
 				return

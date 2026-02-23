@@ -8,16 +8,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/llm/models"
-	"github.com/opencode-ai/opencode/internal/llm/prompt"
-	"github.com/opencode-ai/opencode/internal/llm/provider"
-	"github.com/opencode-ai/opencode/internal/llm/tools"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/message"
-	"github.com/opencode-ai/opencode/internal/permission"
-	"github.com/opencode-ai/opencode/internal/pubsub"
-	"github.com/opencode-ai/opencode/internal/session"
+	"myopencode/internal/config"
+	"myopencode/internal/llm/models"
+	"myopencode/internal/llm/prompt"
+	"myopencode/internal/llm/provider"
+	"myopencode/internal/llm/tools"
+	"myopencode/internal/logging"
+	"myopencode/internal/message"
+	"myopencode/internal/permission"
+	"myopencode/internal/pubsub"
+	"myopencode/internal/session"
 )
 
 // Common errors
@@ -237,6 +237,10 @@ func (a *agent) processGeneration(ctx context.Context, sessionID, content string
 	if err != nil {
 		return a.err(fmt.Errorf("failed to list messages: %w", err))
 	}
+
+	// Filter out invalid assistant messages that cause 400 errors
+	msgs = filterHistory(msgs)
+
 	if len(msgs) == 0 {
 		go func() {
 			defer logging.RecoverPanic("agent.Run", func() {
@@ -290,6 +294,33 @@ func (a *agent) processGeneration(ctx context.Context, sessionID, content string
 			}
 			return a.err(fmt.Errorf("failed to process events: %w", err))
 		}
+
+		// Handle truncation (max_tokens hit)
+		if agentMessage.FinishReason() == message.FinishReasonMaxTokens {
+			logging.Info("Truncation detected (max_tokens), attempting auto-continuation...", "sessionID", sessionID)
+			// Add a "continue" message to prompt the model to finish its output
+			msgHistory = append(msgHistory, agentMessage, message.Message{
+				Role:  message.User,
+				Parts: []message.ContentPart{message.TextContent{Text: "continue"}},
+			})
+
+			// Get the next part of the response
+			nextAgentMessage, nextToolResults, nextErr := a.streamAndHandleEvents(ctx, sessionID, msgHistory)
+			if nextErr != nil {
+				return a.err(fmt.Errorf("failed to continue response: %w", nextErr))
+			}
+
+			// Merge nextAgentMessage into agentMessage
+			a.mergeMessages(&agentMessage, nextAgentMessage)
+			// Update the tool results if any (merging tool results is complex, usually only the final turn has them)
+			if nextToolResults != nil {
+				toolResults = nextToolResults
+			}
+
+			// After merging, we treat the merged message as the current assistant message
+			// and continue the loop to check if we need to call tools or finish.
+		}
+
 		if cfg.Debug {
 			seqId := (len(msgHistory) + 1) / 2
 			toolResultFilepath := logging.WriteToolResultsJson(sessionID, seqId, toolResults)
@@ -307,6 +338,61 @@ func (a *agent) processGeneration(ctx context.Context, sessionID, content string
 			Message: agentMessage,
 			Done:    true,
 		}
+	}
+}
+
+// mergeMessages merges the content of 'next' into 'orig'.
+// It handles concatenation of TextContent and ToolCall.Input.
+func (a *agent) mergeMessages(orig *message.Message, next message.Message) {
+	if len(next.Parts) == 0 {
+		return
+	}
+
+	// 1. Merge TextContent if both end/start with it
+	nextText := next.Content().Text
+	if nextText != "" {
+		orig.AppendContent(nextText)
+	}
+
+	// 2. Merge ToolCalls
+	origTCs := orig.ToolCalls()
+	nextTCs := next.ToolCalls()
+
+	if len(origTCs) > 0 && len(nextTCs) > 0 {
+		// If the last tool call of 'orig' is the first of 'next' (by ID or index), merge them
+		lastOrigTC := &origTCs[len(origTCs)-1]
+		firstNextTC := nextTCs[0]
+
+		// Usually, the model continues the same tool call if it was truncated
+		// If IDs match or if the first next TC has no name/ID (just input), we merge
+		if lastOrigTC.ID == firstNextTC.ID || (firstNextTC.ID == "" && firstNextTC.Name == "") {
+			lastOrigTC.Input += firstNextTC.Input
+			lastOrigTC.Finished = firstNextTC.Finished
+			// Update the part in 'orig'
+			orig.AddToolCall(*lastOrigTC)
+
+			// Append any additional tool calls from 'next'
+			if len(nextTCs) > 1 {
+				for _, tc := range nextTCs[1:] {
+					orig.AddToolCall(tc)
+				}
+			}
+		} else {
+			// Just append all new tool calls
+			for _, tc := range nextTCs {
+				orig.AddToolCall(tc)
+			}
+		}
+	} else if len(nextTCs) > 0 {
+		// Just append all new tool calls
+		for _, tc := range nextTCs {
+			orig.AddToolCall(tc)
+		}
+	}
+
+	// 3. Update FinishReason from the last message
+	if next.IsFinished() {
+		orig.AddFinish(next.FinishReason())
 	}
 }
 
@@ -518,17 +604,45 @@ func (a *agent) Update(agentName config.AgentName, modelID models.ModelID) (mode
 		return models.Model{}, fmt.Errorf("cannot change model while processing requests")
 	}
 
-	if err := config.UpdateAgentModel(agentName, modelID); err != nil {
+	logging.InfoPersist(fmt.Sprintf("[agent.Update] Called with modelID: %q (%s)", string(modelID), agentName))
+
+	if err := config.SaveActiveModel(context.Background(), modelID); err != nil {
+		logging.InfoPersist(fmt.Sprintf("[agent.Update] Failed to save model to DB: %v", err))
 		return models.Model{}, fmt.Errorf("failed to update config: %w", err)
 	}
 
-	provider, err := createAgentProvider(agentName)
+	// CreateAgentProviderWithModel will now use config.GetProvider which handles memory storage
+
+	// Use the provided modelID directly instead of reading from database
+	// This avoids race conditions and ensures we use the correct model
+	provider, err := CreateAgentProviderWithModel(agentName, modelID)
 	if err != nil {
+		logging.InfoPersist(fmt.Sprintf("[agent.Update] Failed to create provider: %v", err))
 		return models.Model{}, fmt.Errorf("failed to create provider for model %s: %w", modelID, err)
 	}
 
 	a.provider = provider
 
+	// Also update titleProvider and summarizeProvider to keep them in sync
+	// This prevents errors when generating titles or summaries after model switch
+	if a.titleProvider != nil {
+		titleProvider, err := CreateAgentProviderWithModel(config.AgentTitle, modelID)
+		if err != nil {
+			logging.InfoPersist(fmt.Sprintf("[agent.Update] Failed to update titleProvider: %v", err))
+		} else {
+			a.titleProvider = titleProvider
+		}
+	}
+	if a.summarizeProvider != nil {
+		summarizeProvider, err := CreateAgentProviderWithModel(config.AgentSummarizer, modelID)
+		if err != nil {
+			logging.InfoPersist(fmt.Sprintf("[agent.Update] Failed to update summarizeProvider: %v", err))
+		} else {
+			a.summarizeProvider = summarizeProvider
+		}
+	}
+
+	logging.InfoPersist(fmt.Sprintf("[agent.Update] Successfully updated to model: %s", a.provider.Model().ID))
 	return a.provider.Model(), nil
 }
 
@@ -568,6 +682,7 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 			a.Publish(pubsub.CreatedEvent, event)
 			return
 		}
+		msgs = filterHistory(msgs)
 		summarizeCtx = context.WithValue(summarizeCtx, tools.SessionIDContextKey, sessionID)
 
 		if len(msgs) == 0 {
@@ -703,30 +818,31 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-func createAgentProvider(agentName config.AgentName) (provider.Provider, error) {
-	cfg := config.Get()
-	agentConfig, ok := cfg.Agents[agentName]
+func CreateAgentProviderWithModel(agentName config.AgentName, modelID models.ModelID) (provider.Provider, error) {
+	model, ok := models.SupportedModels[modelID]
 	if !ok {
-		return nil, fmt.Errorf("agent %s not found", agentName)
-	}
-	model, ok := models.SupportedModels[agentConfig.Model]
-	if !ok {
-		return nil, fmt.Errorf("model %s not supported", agentConfig.Model)
+		return nil, fmt.Errorf("model %s not supported", modelID)
 	}
 
-	providerCfg, ok := cfg.Providers[model.Provider]
+	providerCfg, ok := config.GetProvider(model.Provider)
 	if !ok {
-		return nil, fmt.Errorf("provider %s not supported", model.Provider)
+		return nil, fmt.Errorf("provider %s not found in registry", model.Provider)
 	}
 	if providerCfg.Disabled {
 		return nil, fmt.Errorf("provider %s is not enabled", model.Provider)
 	}
+
+	// Debug logging for configuration
+	logging.InfoPersist(fmt.Sprintf("[createAgentProviderWithModel] Model: %s, Provider: %s, BaseURL from config: %q, APIKey length: %d",
+		model.ID, model.Provider, providerCfg.BaseURL, len(providerCfg.APIKey)))
 	maxTokens := model.DefaultMaxTokens
-	if agentConfig.MaxTokens > 0 {
-		maxTokens = agentConfig.MaxTokens
+	if agentName == config.AgentTitle {
+		maxTokens = 80
 	}
+
 	opts := []provider.ProviderClientOption{
 		provider.WithAPIKey(providerCfg.APIKey),
+		provider.WithProviderBaseURL(providerCfg.BaseURL),
 		provider.WithModel(model),
 		provider.WithSystemMessage(prompt.GetAgentPrompt(agentName, model.Provider)),
 		provider.WithMaxTokens(maxTokens),
@@ -735,7 +851,7 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 		opts = append(
 			opts,
 			provider.WithOpenAIOptions(
-				provider.WithReasoningEffort(agentConfig.ReasoningEffort),
+				provider.WithReasoningEffort("medium"),
 			),
 		)
 	} else if model.Provider == models.ProviderAnthropic && model.CanReason && agentName == config.AgentCoder {
@@ -746,6 +862,7 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 			),
 		)
 	}
+
 	agentProvider, err := provider.NewProvider(
 		model.Provider,
 		opts...,
@@ -755,4 +872,95 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 	}
 
 	return agentProvider, nil
+}
+
+func createAgentProvider(agentName config.AgentName) (provider.Provider, error) {
+	modelID := config.ActiveModel(context.Background(), models.GPT4oMini)
+	if agentName == config.AgentTitle {
+		modelID = config.ActiveModel(context.Background(), models.GPT4oMini)
+	}
+	model, ok := models.SupportedModels[modelID]
+	if !ok {
+		return nil, fmt.Errorf("model %s not supported", modelID)
+	}
+
+	providerCfg, ok := config.GetProvider(model.Provider)
+	if !ok {
+		return nil, fmt.Errorf("provider %s not found in registry", model.Provider)
+	}
+	if providerCfg.Disabled {
+		return nil, fmt.Errorf("provider %s is not enabled", model.Provider)
+	}
+
+	// Debug logging for configuration
+	logging.InfoPersist(fmt.Sprintf("[createAgentProvider] Model: %s, Provider: %s, BaseURL from config: %q, APIKey length: %d",
+		model.ID, model.Provider, providerCfg.BaseURL, len(providerCfg.APIKey)))
+	maxTokens := model.DefaultMaxTokens
+	if agentName == config.AgentTitle {
+		maxTokens = 80
+	}
+
+	opts := []provider.ProviderClientOption{
+		provider.WithAPIKey(providerCfg.APIKey),
+		provider.WithProviderBaseURL(providerCfg.BaseURL),
+		provider.WithModel(model),
+		provider.WithSystemMessage(prompt.GetAgentPrompt(agentName, model.Provider)),
+		provider.WithMaxTokens(maxTokens),
+	}
+	if model.Provider == models.ProviderOpenAI || model.Provider == models.ProviderLocal && model.CanReason {
+		opts = append(
+			opts,
+			provider.WithOpenAIOptions(
+				provider.WithReasoningEffort("medium"),
+			),
+		)
+	} else if model.Provider == models.ProviderAnthropic && model.CanReason && agentName == config.AgentCoder {
+		opts = append(
+			opts,
+			provider.WithAnthropicOptions(
+				provider.WithAnthropicShouldThinkFn(provider.DefaultShouldThinkFn),
+			),
+		)
+	}
+
+	agentProvider, err := provider.NewProvider(
+		model.Provider,
+		opts...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("could not create provider: %v", err)
+	}
+
+	return agentProvider, nil
+}
+
+func filterHistory(msgs []message.Message) []message.Message {
+	filtered := make([]message.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if m.Role == message.Assistant {
+			hasContent := false
+			for _, p := range m.Parts {
+				switch v := p.(type) {
+				case message.TextContent:
+					if v.Text != "" {
+						hasContent = true
+					}
+				case message.ReasoningContent:
+					if v.Thinking != "" {
+						hasContent = true
+					}
+				case message.ImageURLContent, message.BinaryContent, message.ToolCall:
+					hasContent = true
+				}
+				if hasContent {
+					break
+				}
+			}
+			if !hasContent {
+				continue
+			}
+		}
+		filtered = append(filtered, m)
+	}
+	return filtered
 }

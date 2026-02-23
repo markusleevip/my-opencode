@@ -1,22 +1,24 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 
+	"myopencode/internal/config"
+	"myopencode/internal/llm/models"
+	"myopencode/internal/lsp"
+	"myopencode/internal/lsp/protocol"
+	"myopencode/internal/pubsub"
+	"myopencode/internal/session"
+	"myopencode/internal/tui/components/chat"
+	"myopencode/internal/tui/styles"
+	"myopencode/internal/tui/theme"
+	"myopencode/internal/tui/util"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/llm/models"
-	"github.com/opencode-ai/opencode/internal/lsp"
-	"github.com/opencode-ai/opencode/internal/lsp/protocol"
-	"github.com/opencode-ai/opencode/internal/pubsub"
-	"github.com/opencode-ai/opencode/internal/session"
-	"github.com/opencode-ai/opencode/internal/tui/components/chat"
-	"github.com/opencode-ai/opencode/internal/tui/styles"
-	"github.com/opencode-ai/opencode/internal/tui/theme"
-	"github.com/opencode-ai/opencode/internal/tui/util"
 )
 
 type StatusCmp interface {
@@ -118,7 +120,7 @@ func formatTokensAndCost(tokens, contextWindow int64, cost float64) string {
 
 func (m statusCmp) View() string {
 	t := theme.CurrentTheme()
-	modelID := config.Get().Agents[config.AgentCoder].Model
+	modelID := config.ActiveModel(context.Background(), models.GPT4oMini)
 	model := models.SupportedModels[modelID]
 
 	// Initialize the help widget
@@ -269,13 +271,8 @@ func (m statusCmp) availableFooterMsgWidth(diagnostics, tokenInfo string) int {
 func (m statusCmp) model() string {
 	t := theme.CurrentTheme()
 
-	cfg := config.Get()
-
-	coder, ok := cfg.Agents[config.AgentCoder]
-	if !ok {
-		return "Unknown"
-	}
-	model := models.SupportedModels[coder.Model]
+	modelID := config.ActiveModel(context.Background(), models.GPT4oMini)
+	model := models.SupportedModels[modelID]
 
 	return styles.Padded().
 		Background(t.Secondary()).

@@ -9,11 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"myopencode/internal/config"
+	"myopencode/internal/llm/tools"
+	"myopencode/internal/logging"
+	"myopencode/internal/message"
+
 	"github.com/google/uuid"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/llm/tools"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/message"
 	"google.golang.org/genai"
 )
 

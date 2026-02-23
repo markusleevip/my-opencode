@@ -1,6 +1,8 @@
 package models
 
-import "maps"
+import (
+	"maps"
+)
 
 type (
 	ModelID       string
@@ -23,7 +25,7 @@ type Model struct {
 }
 
 // Model IDs
-const ( // GEMINI
+const (
 	// Bedrock
 	BedrockClaude37Sonnet ModelID = "bedrock.claude-3.7-sonnet"
 )
@@ -45,44 +47,17 @@ var ProviderPopularity = map[ModelProvider]int{
 	ProviderBedrock:    7,
 	ProviderAzure:      8,
 	ProviderVertexAI:   9,
+	ProviderZhipu:      10,
 }
 
-var SupportedModels = map[ModelID]Model{
-	//
-	// // GEMINI
-	// GEMINI25: {
-	// 	ID:                 GEMINI25,
-	// 	Name:               "Gemini 2.5 Pro",
-	// 	Provider:           ProviderGemini,
-	// 	APIModel:           "gemini-2.5-pro-exp-03-25",
-	// 	CostPer1MIn:        0,
-	// 	CostPer1MInCached:  0,
-	// 	CostPer1MOutCached: 0,
-	// 	CostPer1MOut:       0,
-	// },
-	//
-	// GRMINI20Flash: {
-	// 	ID:                 GRMINI20Flash,
-	// 	Name:               "Gemini 2.0 Flash",
-	// 	Provider:           ProviderGemini,
-	// 	APIModel:           "gemini-2.0-flash",
-	// 	CostPer1MIn:        0.1,
-	// 	CostPer1MInCached:  0,
-	// 	CostPer1MOutCached: 0.025,
-	// 	CostPer1MOut:       0.4,
-	// },
-	//
-	// // Bedrock
-	BedrockClaude37Sonnet: {
-		ID:                 BedrockClaude37Sonnet,
-		Name:               "Bedrock: Claude 3.7 Sonnet",
-		Provider:           ProviderBedrock,
-		APIModel:           "anthropic.claude-3-7-sonnet-20250219-v1:0",
-		CostPer1MIn:        3.0,
-		CostPer1MInCached:  3.75,
-		CostPer1MOutCached: 0.30,
-		CostPer1MOut:       15.0,
-	},
+// SupportedModels maps model names to their configurations.
+var SupportedModels = make(map[ModelID]Model)
+
+// ConfigSetter is a callback set by the config package to avoid circular dependencies.
+var ConfigSetter func(key string, value any)
+
+func RegisterModel(id ModelID, model Model) {
+	SupportedModels[id] = model
 }
 
 func init() {
@@ -95,4 +70,45 @@ func init() {
 	maps.Copy(SupportedModels, XAIModels)
 	maps.Copy(SupportedModels, VertexAIGeminiModels)
 	maps.Copy(SupportedModels, CopilotModels)
+	maps.Copy(SupportedModels, ZhipuModels)
+
+	// Add the BedrockClaude37Sonnet model directly as it was in the original SupportedModels map
+	SupportedModels[BedrockClaude37Sonnet] = Model{
+		ID:                 BedrockClaude37Sonnet,
+		Name:               "Bedrock: Claude 3.7 Sonnet",
+		Provider:           ProviderBedrock,
+		APIModel:           "anthropic.claude-3-7-sonnet-20250219-v1:0",
+		CostPer1MIn:        3.0,
+		CostPer1MInCached:  3.75,
+		CostPer1MOutCached: 0.30,
+		CostPer1MOut:       15.0,
+	}
+}
+
+// RegisterDynamicModel registers a model from a dynamic provider definition.
+// The model ID will be "{providerKey}.{modelKey}" (e.g. "zhipu.glm-4.7").
+// It is safe to call multiple times; existing registrations are overwritten.
+func RegisterDynamicModel(providerKey, modelKey, apiModel, modelName string, maxTokens, contextWindow int64, canReason, supportsAttachments bool) ModelID {
+	id := ModelID(providerKey + "::" + modelKey)
+
+	// Fallback to defaults if not specified
+	if contextWindow <= 0 {
+		contextWindow = 128000
+	}
+	if maxTokens <= 0 {
+		maxTokens = 8192
+	}
+
+	model := Model{
+		ID:                  id,
+		Name:                modelName,
+		Provider:            ModelProvider(providerKey),
+		APIModel:            apiModel,
+		ContextWindow:       contextWindow,
+		DefaultMaxTokens:    maxTokens,
+		CanReason:           canReason,
+		SupportsAttachments: supportsAttachments,
+	}
+	SupportedModels[id] = model
+	return id
 }

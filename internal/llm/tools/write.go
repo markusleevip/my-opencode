@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/diff"
-	"github.com/opencode-ai/opencode/internal/history"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/lsp"
-	"github.com/opencode-ai/opencode/internal/permission"
+	"myopencode/internal/config"
+	"myopencode/internal/diff"
+	"myopencode/internal/history"
+	"myopencode/internal/logging"
+	"myopencode/internal/lsp"
+	"myopencode/internal/permission"
 )
 
 type WriteParams struct {

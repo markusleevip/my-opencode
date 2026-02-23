@@ -6,9 +6,10 @@ import (
 	"slices"
 	"sync"
 
+	"myopencode/internal/config"
+	"myopencode/internal/pubsub"
+
 	"github.com/google/uuid"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/pubsub"
 )
 
 var ErrorPermissionDenied = errors.New("permission denied")

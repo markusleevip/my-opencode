@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/opencode-ai/opencode/internal/llm/models"
-	"github.com/opencode-ai/opencode/internal/llm/tools"
-	"github.com/opencode-ai/opencode/internal/message"
+	"myopencode/internal/llm/models"
+	"myopencode/internal/llm/tools"
+	"myopencode/internal/logging"
+	"myopencode/internal/message"
 )
 
 type EventType string
@@ -60,6 +61,7 @@ type Provider interface {
 
 type providerClientOptions struct {
 	apiKey        string
+	baseURL       string
 	model         models.Model
 	maxTokens     int64
 	systemMessage string
@@ -90,9 +92,13 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 	}
 	switch providerName {
 	case models.ProviderCopilot:
+		client, err := newCopilotClient(clientOptions)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize Copilot provider: %w", err)
+		}
 		return &baseProvider[CopilotClient]{
 			options: clientOptions,
-			client:  newCopilotClient(clientOptions),
+			client:  client,
 		}, nil
 	case models.ProviderAnthropic:
 		return &baseProvider[AnthropicClient]{
@@ -152,6 +158,19 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 			options: clientOptions,
 			client:  newOpenAIClient(clientOptions),
 		}, nil
+	case models.ProviderZhipu:
+		// Use URL from config, fall back to default Zhipu endpoint
+		zhipuURL := clientOptions.baseURL
+		if zhipuURL == "" {
+			zhipuURL = "https://api.z.ai/api/coding/paas/v4"
+		}
+		clientOptions.openaiOptions = append(clientOptions.openaiOptions,
+			WithOpenAIBaseURL(zhipuURL),
+		)
+		return &baseProvider[OpenAIClient]{
+			options: clientOptions,
+			client:  newOpenAIClient(clientOptions),
+		}, nil
 	case models.ProviderLocal:
 		clientOptions.openaiOptions = append(clientOptions.openaiOptions,
 			WithOpenAIBaseURL(os.Getenv("LOCAL_ENDPOINT")),
@@ -163,6 +182,19 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 	case models.ProviderMock:
 		// TODO: implement mock client for test
 		panic("not implemented")
+	default:
+		// Dynamic / custom provider: route to OpenAI-compatible client if baseURL is set
+		if clientOptions.baseURL != "" {
+			logging.Info(fmt.Sprintf("[NewProvider] Creating dynamic provider %s with baseURL: %s", providerName, clientOptions.baseURL))
+			clientOptions.openaiOptions = append(clientOptions.openaiOptions,
+				WithOpenAIBaseURL(clientOptions.baseURL),
+			)
+			return &baseProvider[OpenAIClient]{
+				options: clientOptions,
+				client:  newOpenAIClient(clientOptions),
+			}, nil
+		}
+		logging.Warn(fmt.Sprintf("[NewProvider] Dynamic provider %s has empty baseURL", providerName))
 	}
 	return nil, fmt.Errorf("provider not supported: %s", providerName)
 }
@@ -195,6 +227,12 @@ func (p *baseProvider[C]) StreamResponse(ctx context.Context, messages []message
 func WithAPIKey(apiKey string) ProviderClientOption {
 	return func(options *providerClientOptions) {
 		options.apiKey = apiKey
+	}
+}
+
+func WithProviderBaseURL(baseURL string) ProviderClientOption {
+	return func(options *providerClientOptions) {
+		options.baseURL = baseURL
 	}
 }
 

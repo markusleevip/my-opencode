@@ -3,10 +3,10 @@ package lsp
 import (
 	"encoding/json"
 
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/lsp/protocol"
-	"github.com/opencode-ai/opencode/internal/lsp/util"
+	"myopencode/internal/config"
+	"myopencode/internal/logging"
+	"myopencode/internal/lsp/protocol"
+	"myopencode/internal/lsp/util"
 )
 
 // Requests

@@ -7,44 +7,46 @@ import (
 	"sync"
 	"time"
 
+	"myopencode/internal/app"
+	"myopencode/internal/config"
+	"myopencode/internal/db"
+	"myopencode/internal/format"
+	"myopencode/internal/llm/agent"
+	"myopencode/internal/llm/models"
+	"myopencode/internal/logging"
+	"myopencode/internal/pubsub"
+	"myopencode/internal/tui"
+	"myopencode/internal/version"
+
 	tea "github.com/charmbracelet/bubbletea"
 	zone "github.com/lrstanley/bubblezone"
-	"github.com/opencode-ai/opencode/internal/app"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/db"
-	"github.com/opencode-ai/opencode/internal/format"
-	"github.com/opencode-ai/opencode/internal/llm/agent"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/pubsub"
-	"github.com/opencode-ai/opencode/internal/tui"
-	"github.com/opencode-ai/opencode/internal/version"
 	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "opencode",
+	Use:   "myopencode",
 	Short: "Terminal-based AI assistant for software development",
-	Long: `OpenCode is a powerful terminal-based AI assistant that helps with software development tasks.
+	Long: `MyOpenCode is a powerful terminal-based AI assistant that helps with software development tasks.
 It provides an interactive chat interface with AI capabilities, code analysis, and LSP integration
 to assist developers in writing, debugging, and understanding code directly from the terminal.`,
 	Example: `
   # Run in interactive mode
-  opencode
+  myopencode
 
   # Run with debug logging
-  opencode -d
+  myopencode -d
 
   # Run with debug logging in a specific directory
-  opencode -d -c /path/to/project
+  myopencode -d -c /path/to/project
 
   # Print version
-  opencode -v
+  myopencode -v
 
   # Run a single non-interactive prompt
-  opencode -p "Explain the use of context in Go"
+  myopencode -p "Explain the use of context in Go"
 
   # Run a single non-interactive prompt with JSON output format
-  opencode -p "Explain the use of context in Go" -f json
+  myopencode -p "Explain the use of context in Go" -f json
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// If the help flag is set, show the help message
@@ -63,6 +65,7 @@ to assist developers in writing, debugging, and understanding code directly from
 		prompt, _ := cmd.Flags().GetString("prompt")
 		outputFormat, _ := cmd.Flags().GetString("output-format")
 		quiet, _ := cmd.Flags().GetBool("quiet")
+		modelFlag, _ := cmd.Flags().GetString("model")
 
 		// Validate format option
 		if !format.IsValid(outputFormat) {
@@ -93,9 +96,33 @@ to assist developers in writing, debugging, and understanding code directly from
 			return err
 		}
 
+		// Initialize config DB callbacks
+		q := db.New(conn)
+		config.DbGetSetting = func(ctx context.Context, key string) (string, error) {
+			s, err := q.GetSetting(ctx, key)
+			if err != nil {
+				return "", err
+			}
+			return s.Value, nil
+		}
+		config.DbSetSetting = func(ctx context.Context, key, value string, createdAt, updatedAt int64) error {
+			_, err := q.SetSetting(ctx, db.SetSettingParams{
+				Key:       key,
+				Value:     value,
+				CreatedAt: createdAt,
+				UpdatedAt: updatedAt,
+			})
+			return err
+		}
+
 		// Create main context for the application
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
+		// --model flag overrides the config model for this session
+		if modelFlag != "" {
+			config.SaveActiveModel(ctx, models.ModelID(modelFlag))
+		}
 
 		app, err := app.New(ctx, conn)
 		if err != nil {
@@ -294,6 +321,7 @@ func init() {
 	rootCmd.Flags().BoolP("debug", "d", false, "Debug")
 	rootCmd.Flags().StringP("cwd", "c", "", "Current working directory")
 	rootCmd.Flags().StringP("prompt", "p", "", "Prompt to run in non-interactive mode")
+	rootCmd.Flags().StringP("model", "m", "", "Override default model for this session (e.g. zhipu/glm-4.7)")
 
 	// Add format flag with validation logic
 	rootCmd.Flags().StringP("output-format", "f", format.Text.String(),

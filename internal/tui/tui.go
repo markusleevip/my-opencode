@@ -5,23 +5,24 @@ import (
 	"fmt"
 	"strings"
 
+	"myopencode/internal/app"
+	"myopencode/internal/config"
+	"myopencode/internal/llm/agent"
+	"myopencode/internal/logging"
+	"myopencode/internal/permission"
+	"myopencode/internal/pubsub"
+	"myopencode/internal/session"
+	"myopencode/internal/tui/components/chat"
+	"myopencode/internal/tui/components/core"
+	"myopencode/internal/tui/components/dialog"
+	"myopencode/internal/tui/layout"
+	"myopencode/internal/tui/page"
+	"myopencode/internal/tui/theme"
+	"myopencode/internal/tui/util"
+
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/opencode-ai/opencode/internal/app"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/llm/agent"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/permission"
-	"github.com/opencode-ai/opencode/internal/pubsub"
-	"github.com/opencode-ai/opencode/internal/session"
-	"github.com/opencode-ai/opencode/internal/tui/components/chat"
-	"github.com/opencode-ai/opencode/internal/tui/components/core"
-	"github.com/opencode-ai/opencode/internal/tui/components/dialog"
-	"github.com/opencode-ai/opencode/internal/tui/layout"
-	"github.com/opencode-ai/opencode/internal/tui/page"
-	"github.com/opencode-ai/opencode/internal/tui/theme"
-	"github.com/opencode-ai/opencode/internal/tui/util"
 )
 
 type keyMap struct {
@@ -359,11 +360,16 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dialog.ModelSelectedMsg:
 		a.showModelDialog = false
 
+		logging.InfoPersist(fmt.Sprintf("[TUI] ModelSelectedMsg - Model ID: %q, Name: %s, Provider: %s",
+			msg.Model.ID, msg.Model.Name, msg.Model.Provider))
+
 		model, err := a.app.CoderAgent.Update(config.AgentCoder, msg.Model.ID)
 		if err != nil {
+			logging.InfoPersist(fmt.Sprintf("[TUI] Failed to update model: %v", err))
 			return a, util.ReportError(err)
 		}
 
+		logging.InfoPersist(fmt.Sprintf("[TUI] Model updated successfully: %s", model.Name))
 		return a, util.ReportInfo(fmt.Sprintf("Model changed to %s", model.Name))
 
 	case dialog.ShowInitDialogMsg:
@@ -518,7 +524,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, a.themeDialog.Init()
 			}
 			return a, nil
-		case key.Matches(msg, returnKey) || key.Matches(msg):
+		case key.Matches(msg, returnKey) || key.Matches(msg, logsKeyReturnKey):
 			if msg.String() == quitKey {
 				if a.currentPage == page.LogsPage {
 					return a, a.moveToPage(page.ChatPage)
@@ -550,6 +556,10 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case key.Matches(msg, keys.Logs):
+			// Toggle between chat and logs page
+			if a.currentPage == page.LogsPage {
+				return a, a.moveToPage(page.ChatPage)
+			}
 			return a, a.moveToPage(page.LogsPage)
 		case key.Matches(msg, keys.Help):
 			if a.showQuit {
@@ -678,7 +688,7 @@ func (a *appModel) findCommand(id string) (dialog.Command, bool) {
 }
 
 func (a *appModel) moveToPage(pageID page.PageID) tea.Cmd {
-	if a.app.CoderAgent.IsBusy() {
+	if a.app.CoderAgent.IsBusy() && pageID != page.ChatPage && pageID != page.LogsPage {
 		// For now we don't move to any page if the agent is busy
 		return util.ReportWarn("Agent is busy, please wait...")
 	}

@@ -10,8 +10,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/spf13/viper"
+	"myopencode/internal/logging"
 )
 
 const (
@@ -52,7 +51,9 @@ func init() {
 
 		loadLocalModels(models)
 
-		viper.SetDefault("providers.local.apiKey", "dummy")
+		if ConfigSetter != nil {
+			ConfigSetter("providers::local::apiKey", "dummy")
+		}
 		ProviderPopularity[ProviderLocal] = 0
 	}
 }
@@ -129,17 +130,19 @@ func loadLocalModels(models []localModel) {
 		SupportedModels[model.ID] = model
 
 		if i == 0 || m.State == "loaded" {
-			viper.SetDefault("agents.coder.model", model.ID)
-			viper.SetDefault("agents.summarizer.model", model.ID)
-			viper.SetDefault("agents.task.model", model.ID)
-			viper.SetDefault("agents.title.model", model.ID)
+			if ConfigSetter != nil {
+				ConfigSetter("agents::coder::model", model.ID)
+				ConfigSetter("agents::summarizer::model", model.ID)
+				ConfigSetter("agents::task::model", model.ID)
+				ConfigSetter("agents::title::model", model.ID)
+			}
 		}
 	}
 }
 
 func convertLocalModel(model localModel) Model {
 	return Model{
-		ID:                  ModelID("local." + model.ID),
+		ID:                  ModelID("local::" + model.ID),
 		Name:                friendlyModelName(model.ID),
 		Provider:            ProviderLocal,
 		APIModel:            model.ID,

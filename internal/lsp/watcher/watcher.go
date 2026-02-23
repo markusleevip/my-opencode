@@ -9,12 +9,13 @@ import (
 	"sync"
 	"time"
 
+	"myopencode/internal/config"
+	"myopencode/internal/logging"
+	"myopencode/internal/lsp"
+	"myopencode/internal/lsp/protocol"
+
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/fsnotify/fsnotify"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/lsp"
-	"github.com/opencode-ai/opencode/internal/lsp/protocol"
 )
 
 // WorkspaceWatcher manages LSP file watching

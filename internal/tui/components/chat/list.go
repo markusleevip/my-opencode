@@ -5,19 +5,20 @@ import (
 	"fmt"
 	"math"
 
+	"myopencode/internal/app"
+	"myopencode/internal/message"
+	"myopencode/internal/pubsub"
+	"myopencode/internal/session"
+	"myopencode/internal/tui/components/dialog"
+	"myopencode/internal/tui/styles"
+	"myopencode/internal/tui/theme"
+	"myopencode/internal/tui/util"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/opencode-ai/opencode/internal/app"
-	"github.com/opencode-ai/opencode/internal/message"
-	"github.com/opencode-ai/opencode/internal/pubsub"
-	"github.com/opencode-ai/opencode/internal/session"
-	"github.com/opencode-ai/opencode/internal/tui/components/dialog"
-	"github.com/opencode-ai/opencode/internal/tui/styles"
-	"github.com/opencode-ai/opencode/internal/tui/theme"
-	"github.com/opencode-ai/opencode/internal/tui/util"
 )
 
 type cacheItem struct {
@@ -95,6 +96,12 @@ func (m *messagesCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport = u
 			cmds = append(cmds, cmd)
 		}
+
+	case tea.MouseMsg:
+		// Forward mouse events (scroll wheel) to viewport
+		u, cmd := m.viewport.Update(msg)
+		m.viewport = u
+		cmds = append(cmds, cmd)
 
 	case renderFinishedMsg:
 		m.rendering = false
@@ -472,6 +479,7 @@ func NewMessagesCmp(app *app.App) tea.Model {
 	s := spinner.New()
 	s.Spinner = spinner.Pulse
 	vp := viewport.New(0, 0)
+	vp.MouseWheelEnabled = true
 	attachmets := viewport.New(0, 0)
 	vp.KeyMap.PageUp = messageKeys.PageUp
 	vp.KeyMap.PageDown = messageKeys.PageDown

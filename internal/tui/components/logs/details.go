@@ -5,14 +5,15 @@ import (
 	"strings"
 	"time"
 
+	"myopencode/internal/logging"
+	"myopencode/internal/tui/layout"
+	"myopencode/internal/tui/styles"
+	"myopencode/internal/tui/theme"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/tui/layout"
-	"github.com/opencode-ai/opencode/internal/tui/styles"
-	"github.com/opencode-ai/opencode/internal/tui/theme"
 )
 
 type DetailComponent interface {
@@ -52,6 +53,10 @@ func (i *detailCmp) updateContent() {
 	var content strings.Builder
 	t := theme.CurrentTheme()
 
+	if i.width <= 0 {
+		return
+	}
+
 	// Format the header with timestamp and level
 	timeStyle := lipgloss.NewStyle().Foreground(t.TextMuted())
 	levelStyle := getLevelStyle(i.currentLog.Level)
@@ -66,20 +71,22 @@ func (i *detailCmp) updateContent() {
 	content.WriteString(lipgloss.NewStyle().Bold(true).Render(header))
 	content.WriteString("\n\n")
 
-	// Message with styling
-	messageStyle := lipgloss.NewStyle().Bold(true).Foreground(t.Text())
+	// Message with styling and wrapping
+	messageStyle := lipgloss.NewStyle().Bold(true).Foreground(t.Primary())
 	content.WriteString(messageStyle.Render("Message:"))
 	content.WriteString("\n")
-	content.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(i.currentLog.Message))
+
+	wordWrapStyle := lipgloss.NewStyle().Padding(0, 2).Width(i.width - 4)
+	content.WriteString(wordWrapStyle.Render(i.currentLog.Message))
 	content.WriteString("\n\n")
 
 	// Attributes section
 	if len(i.currentLog.Attributes) > 0 {
-		attrHeaderStyle := lipgloss.NewStyle().Bold(true).Foreground(t.Text())
+		attrHeaderStyle := lipgloss.NewStyle().Bold(true).Foreground(t.Primary())
 		content.WriteString(attrHeaderStyle.Render("Attributes:"))
 		content.WriteString("\n")
 
-		// Create a table-like display for attributes
+		// Create a wrapped display for attributes
 		keyStyle := lipgloss.NewStyle().Foreground(t.Primary()).Bold(true)
 		valueStyle := lipgloss.NewStyle().Foreground(t.Text())
 
@@ -88,7 +95,7 @@ func (i *detailCmp) updateContent() {
 				keyStyle.Render(attr.Key),
 				valueStyle.Render(attr.Value),
 			)
-			content.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(attrLine))
+			content.WriteString(lipgloss.NewStyle().Padding(0, 2).Width(i.width - 4).Render(attrLine))
 			content.WriteString("\n")
 		}
 	}
@@ -99,7 +106,7 @@ func (i *detailCmp) updateContent() {
 func getLevelStyle(level string) lipgloss.Style {
 	style := lipgloss.NewStyle().Bold(true)
 	t := theme.CurrentTheme()
-	
+
 	switch strings.ToLower(level) {
 	case "info":
 		return style.Foreground(t.Info())

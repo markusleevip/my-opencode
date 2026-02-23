@@ -44,21 +44,37 @@ func Error(msg string, args ...any) {
 func InfoPersist(msg string, args ...any) {
 	args = append(args, persistKeyArg, true)
 	slog.Info(msg, args...)
+
+	// Also write to file
+	logMsg := fmt.Sprintf(msg, args...)
+	writePersistLog("INFO: " + logMsg)
 }
 
 func DebugPersist(msg string, args ...any) {
 	args = append(args, persistKeyArg, true)
 	slog.Debug(msg, args...)
+
+	// Also write to file
+	logMsg := fmt.Sprintf(msg, args...)
+	writePersistLog("DEBUG: " + logMsg)
 }
 
 func WarnPersist(msg string, args ...any) {
 	args = append(args, persistKeyArg, true)
 	slog.Warn(msg, args...)
+
+	// Also write to file
+	logMsg := fmt.Sprintf(msg, args...)
+	writePersistLog("WARN: " + logMsg)
 }
 
 func ErrorPersist(msg string, args ...any) {
 	args = append(args, persistKeyArg, true)
 	slog.Error(msg, args...)
+
+	// Also write to file
+	logMsg := fmt.Sprintf(msg, args...)
+	writePersistLog("ERROR: " + logMsg)
 }
 
 // RecoverPanic is a common function to handle panics gracefully.
@@ -96,6 +112,34 @@ func RecoverPanic(name string, cleanup func()) {
 
 // Message Logging for Debug
 var MessageDir string
+
+var logFileMutex sync.Mutex
+var logFilePath string
+
+func InitPersistLog(dir string) {
+	if dir == "" {
+		return
+	}
+	logFilePath = fmt.Sprintf("%s/persist.log", dir)
+}
+
+func writePersistLog(msg string) {
+	if logFilePath == "" {
+		return
+	}
+	logFileMutex.Lock()
+	defer logFileMutex.Unlock()
+
+	f, err := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	timestamp := time.Now().Format("2006-01-02 15:04:05.000")
+	logLine := fmt.Sprintf("%s %s\n", timestamp, msg)
+	f.WriteString(logLine)
+}
 
 func GetSessionPrefix(sessionId string) string {
 	return sessionId[:8]

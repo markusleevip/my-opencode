@@ -9,19 +9,20 @@ import (
 	"strings"
 	"time"
 
+	"myopencode/internal/app"
+	"myopencode/internal/config"
+	"myopencode/internal/logging"
+	"myopencode/internal/message"
+	"myopencode/internal/tui/image"
+	"myopencode/internal/tui/styles"
+	"myopencode/internal/tui/theme"
+	"myopencode/internal/tui/util"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/opencode-ai/opencode/internal/app"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/message"
-	"github.com/opencode-ai/opencode/internal/tui/image"
-	"github.com/opencode-ai/opencode/internal/tui/styles"
-	"github.com/opencode-ai/opencode/internal/tui/theme"
-	"github.com/opencode-ai/opencode/internal/tui/util"
 )
 
 const (

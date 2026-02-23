@@ -1,19 +1,21 @@
 package dialog
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
 
+	"myopencode/internal/config"
+	"myopencode/internal/llm/models"
+	"myopencode/internal/tui/layout"
+	"myopencode/internal/tui/styles"
+	"myopencode/internal/tui/theme"
+	"myopencode/internal/tui/util"
+
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/llm/models"
-	"github.com/opencode-ai/opencode/internal/tui/layout"
-	"github.com/opencode-ai/opencode/internal/tui/styles"
-	"github.com/opencode-ai/opencode/internal/tui/theme"
-	"github.com/opencode-ai/opencode/internal/tui/util"
 )
 
 const (
@@ -281,9 +283,7 @@ func (m *modelDialogCmp) setupModels() {
 }
 
 func GetSelectedModel(cfg *config.Config) models.Model {
-
-	agentCfg := cfg.Agents[config.AgentCoder]
-	selectedModelId := agentCfg.Model
+	selectedModelId := config.ActiveModel(context.Background(), models.GPT4oMini)
 	return models.SupportedModels[selectedModelId]
 }
 
@@ -323,9 +323,7 @@ func findProviderIndex(providers []models.ModelProvider, provider models.ModelPr
 }
 
 func (m *modelDialogCmp) setupModelsForProvider(provider models.ModelProvider) {
-	cfg := config.Get()
-	agentCfg := cfg.Agents[config.AgentCoder]
-	selectedModelId := agentCfg.Model
+	selectedModelId := config.ActiveModel(context.Background(), models.GPT4oMini)
 
 	m.provider = provider
 	m.models = getModelsForProvider(provider)
