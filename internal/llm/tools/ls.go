@@ -88,6 +88,10 @@ func (l *lsTool) Info() ToolInfo {
 	}
 }
 
+func (l *lsTool) IsReadOnly() bool {
+	return true
+}
+
 func (l *lsTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error) {
 	var params LSParams
 	if err := json.Unmarshal([]byte(call.Input), &params); err != nil {

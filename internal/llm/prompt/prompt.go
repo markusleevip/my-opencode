@@ -10,9 +10,16 @@ import (
 	"myopencode/internal/config"
 	"myopencode/internal/llm/models"
 	"myopencode/internal/logging"
+	"myopencode/internal/permission/types"
 )
 
-func GetAgentPrompt(agentName config.AgentName, provider models.ModelProvider) string {
+const PlanModePrompt = `You are currently in PLAN MODE.
+In this mode, you are restricted to READ-ONLY actions. You can use tools like 'ls', 'grep', 'view', 'glob', and 'diagnostics' to explore the codebase and gather information.
+You CANNOT use tools that modify the filesystem (like 'edit', 'write', 'patch') or execute potentially destructive commands via 'bash'.
+Your goal is to analyze the user's request, explore the code, and provide a detailed plan or explanation.
+Do not attempt to perform any file modifications.`
+
+func GetAgentPrompt(agentName config.AgentName, provider models.ModelProvider, mode types.PermissionsMode) string {
 	basePrompt := ""
 	switch agentName {
 	case config.AgentCoder:
@@ -25,6 +32,10 @@ func GetAgentPrompt(agentName config.AgentName, provider models.ModelProvider) s
 		basePrompt = SummarizerPrompt(provider)
 	default:
 		basePrompt = "You are a helpful assistant"
+	}
+
+	if mode == types.Plan {
+		basePrompt = basePrompt + "\n\n" + PlanModePrompt
 	}
 
 	if agentName == config.AgentCoder || agentName == config.AgentTask {

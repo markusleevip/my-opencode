@@ -97,6 +97,10 @@ func (w *writeTool) Info() ToolInfo {
 	}
 }
 
+func (w *writeTool) IsReadOnly() bool {
+	return false
+}
+
 func (w *writeTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error) {
 	var params WriteParams
 	if err := json.Unmarshal([]byte(call.Input), &params); err != nil {

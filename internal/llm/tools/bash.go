@@ -227,6 +227,10 @@ func (b *bashTool) Info() ToolInfo {
 	}
 }
 
+func (b *bashTool) IsReadOnly() bool {
+	return false
+}
+
 func (b *bashTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error) {
 	var params BashParams
 	if err := json.Unmarshal([]byte(call.Input), &params); err != nil {

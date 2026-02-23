@@ -121,6 +121,10 @@ func (e *editTool) Info() ToolInfo {
 	}
 }
 
+func (e *editTool) IsReadOnly() bool {
+	return false
+}
+
 func (e *editTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error) {
 	var params EditParams
 	if err := json.Unmarshal([]byte(call.Input), &params); err != nil {

@@ -40,6 +40,10 @@ func (b *agentTool) Info() tools.ToolInfo {
 	}
 }
 
+func (b *agentTool) IsReadOnly() bool {
+	return true
+}
+
 func (b *agentTool) Run(ctx context.Context, call tools.ToolCall) (tools.ToolResponse, error) {
 	var params AgentParams
 	if err := json.Unmarshal([]byte(call.Input), &params); err != nil {

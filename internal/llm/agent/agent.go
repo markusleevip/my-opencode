@@ -16,6 +16,7 @@ import (
 	"myopencode/internal/logging"
 	"myopencode/internal/message"
 	"myopencode/internal/permission"
+	"myopencode/internal/permission/types"
 	"myopencode/internal/pubsub"
 	"myopencode/internal/session"
 )
@@ -54,6 +55,8 @@ type Service interface {
 	IsBusy() bool
 	Update(agentName config.AgentName, modelID models.ModelID) (models.Model, error)
 	Summarize(ctx context.Context, sessionID string) error
+	SetPermissionsMode(mode types.PermissionsMode)
+	PermissionsMode() types.PermissionsMode
 }
 
 type agent struct {
@@ -67,7 +70,8 @@ type agent struct {
 	titleProvider     provider.Provider
 	summarizeProvider provider.Provider
 
-	activeRequests sync.Map
+	activeRequests  sync.Map
+	permissionsMode types.PermissionsMode
 }
 
 func NewAgent(
@@ -76,21 +80,21 @@ func NewAgent(
 	messages message.Service,
 	agentTools []tools.BaseTool,
 ) (Service, error) {
-	agentProvider, err := createAgentProvider(agentName)
+	agentProvider, err := createAgentProvider(agentName, types.ActManual)
 	if err != nil {
 		return nil, err
 	}
 	var titleProvider provider.Provider
 	// Only generate titles for the coder agent
 	if agentName == config.AgentCoder {
-		titleProvider, err = createAgentProvider(config.AgentTitle)
+		titleProvider, err = createAgentProvider(config.AgentTitle, types.ActManual)
 		if err != nil {
 			return nil, err
 		}
 	}
 	var summarizeProvider provider.Provider
 	if agentName == config.AgentCoder {
-		summarizeProvider, err = createAgentProvider(config.AgentSummarizer)
+		summarizeProvider, err = createAgentProvider(config.AgentSummarizer, types.ActManual)
 		if err != nil {
 			return nil, err
 		}
@@ -105,9 +109,23 @@ func NewAgent(
 		titleProvider:     titleProvider,
 		summarizeProvider: summarizeProvider,
 		activeRequests:    sync.Map{},
+		permissionsMode:   types.ActManual,
 	}
 
 	return agent, nil
+}
+
+func (a *agent) SetPermissionsMode(mode types.PermissionsMode) {
+	a.permissionsMode = mode
+	// Re-create provider to update system prompt
+	p, err := createAgentProvider(config.AgentCoder, mode)
+	if err == nil {
+		a.provider = p
+	}
+}
+
+func (a *agent) PermissionsMode() types.PermissionsMode {
+	return a.permissionsMode
 }
 
 func (a *agent) Model() models.Model {
@@ -407,7 +425,20 @@ func (a *agent) createUserMessage(ctx context.Context, sessionID, content string
 
 func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msgHistory []message.Message) (message.Message, *message.Message, error) {
 	ctx = context.WithValue(ctx, tools.SessionIDContextKey, sessionID)
-	eventChan := a.provider.StreamResponse(ctx, msgHistory, a.tools)
+
+	// Filter tools based on permissions mode
+	var availableTools []tools.BaseTool
+	if a.permissionsMode == types.Plan {
+		for _, t := range a.tools {
+			if t.IsReadOnly() {
+				availableTools = append(availableTools, t)
+			}
+		}
+	} else {
+		availableTools = a.tools
+	}
+
+	eventChan := a.provider.StreamResponse(ctx, msgHistory, availableTools)
 
 	assistantMsg, err := a.messages.Create(ctx, sessionID, message.CreateMessageParams{
 		Role:  message.Assistant,
@@ -450,58 +481,54 @@ func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msg
 			goto out
 		default:
 			// Continue processing
-			var tool tools.BaseTool
-			for _, availableTool := range a.tools {
-				if availableTool.Info().Name == toolCall.Name {
-					tool = availableTool
-					break
-				}
-				// Monkey patch for Copilot Sonnet-4 tool repetition obfuscation
-				// if strings.HasPrefix(toolCall.Name, availableTool.Info().Name) &&
-				// 	strings.HasPrefix(toolCall.Name, availableTool.Info().Name+availableTool.Info().Name) {
-				// 	tool = availableTool
-				// 	break
-				// }
-			}
+		}
 
-			// Tool not found
-			if tool == nil {
-				toolResults[i] = message.ToolResult{
-					ToolCallID: toolCall.ID,
-					Content:    fmt.Sprintf("Tool not found: %s", toolCall.Name),
-					IsError:    true,
-				}
-				continue
+		var tool tools.BaseTool
+		for _, availableTool := range availableTools {
+			if availableTool.Info().Name == toolCall.Name {
+				tool = availableTool
+				break
 			}
-			toolResult, toolErr := tool.Run(ctx, tools.ToolCall{
-				ID:    toolCall.ID,
-				Name:  toolCall.Name,
-				Input: toolCall.Input,
-			})
-			if toolErr != nil {
-				if errors.Is(toolErr, permission.ErrorPermissionDenied) {
-					toolResults[i] = message.ToolResult{
-						ToolCallID: toolCall.ID,
-						Content:    "Permission denied",
-						IsError:    true,
-					}
-					for j := i + 1; j < len(toolCalls); j++ {
-						toolResults[j] = message.ToolResult{
-							ToolCallID: toolCalls[j].ID,
-							Content:    "Tool execution canceled by user",
-							IsError:    true,
-						}
-					}
-					a.finishMessage(ctx, &assistantMsg, message.FinishReasonPermissionDenied)
-					break
-				}
-			}
+		}
+
+		// Tool not found
+		if tool == nil {
 			toolResults[i] = message.ToolResult{
 				ToolCallID: toolCall.ID,
-				Content:    toolResult.Content,
-				Metadata:   toolResult.Metadata,
-				IsError:    toolResult.IsError,
+				Content:    fmt.Sprintf("Tool not found: %s", toolCall.Name),
+				IsError:    true,
 			}
+			continue
+		}
+
+		toolResult, toolErr := tool.Run(ctx, tools.ToolCall{
+			ID:    toolCall.ID,
+			Name:  toolCall.Name,
+			Input: toolCall.Input,
+		})
+		if toolErr != nil {
+			if errors.Is(toolErr, permission.ErrorPermissionDenied) {
+				toolResults[i] = message.ToolResult{
+					ToolCallID: toolCall.ID,
+					Content:    "Permission denied",
+					IsError:    true,
+				}
+				for j := i + 1; j < len(toolCalls); j++ {
+					toolResults[j] = message.ToolResult{
+						ToolCallID: toolCalls[j].ID,
+						Content:    "Tool execution canceled by user",
+						IsError:    true,
+					}
+				}
+				a.finishMessage(ctx, &assistantMsg, message.FinishReasonPermissionDenied)
+				break
+			}
+		}
+		toolResults[i] = message.ToolResult{
+			ToolCallID: toolCall.ID,
+			Content:    toolResult.Content,
+			Metadata:   toolResult.Metadata,
+			IsError:    toolResult.IsError,
 		}
 	}
 out:
@@ -615,7 +642,7 @@ func (a *agent) Update(agentName config.AgentName, modelID models.ModelID) (mode
 
 	// Use the provided modelID directly instead of reading from database
 	// This avoids race conditions and ensures we use the correct model
-	provider, err := CreateAgentProviderWithModel(agentName, modelID)
+	provider, err := CreateAgentProviderWithModel(agentName, modelID, a.permissionsMode)
 	if err != nil {
 		logging.InfoPersist(fmt.Sprintf("[agent.Update] Failed to create provider: %v", err))
 		return models.Model{}, fmt.Errorf("failed to create provider for model %s: %w", modelID, err)
@@ -626,7 +653,7 @@ func (a *agent) Update(agentName config.AgentName, modelID models.ModelID) (mode
 	// Also update titleProvider and summarizeProvider to keep them in sync
 	// This prevents errors when generating titles or summaries after model switch
 	if a.titleProvider != nil {
-		titleProvider, err := CreateAgentProviderWithModel(config.AgentTitle, modelID)
+		titleProvider, err := CreateAgentProviderWithModel(config.AgentTitle, modelID, a.permissionsMode)
 		if err != nil {
 			logging.InfoPersist(fmt.Sprintf("[agent.Update] Failed to update titleProvider: %v", err))
 		} else {
@@ -634,7 +661,7 @@ func (a *agent) Update(agentName config.AgentName, modelID models.ModelID) (mode
 		}
 	}
 	if a.summarizeProvider != nil {
-		summarizeProvider, err := CreateAgentProviderWithModel(config.AgentSummarizer, modelID)
+		summarizeProvider, err := CreateAgentProviderWithModel(config.AgentSummarizer, modelID, a.permissionsMode)
 		if err != nil {
 			logging.InfoPersist(fmt.Sprintf("[agent.Update] Failed to update summarizeProvider: %v", err))
 		} else {
@@ -818,7 +845,7 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-func CreateAgentProviderWithModel(agentName config.AgentName, modelID models.ModelID) (provider.Provider, error) {
+func CreateAgentProviderWithModel(agentName config.AgentName, modelID models.ModelID, mode types.PermissionsMode) (provider.Provider, error) {
 	model, ok := models.SupportedModels[modelID]
 	if !ok {
 		return nil, fmt.Errorf("model %s not supported", modelID)
@@ -844,7 +871,7 @@ func CreateAgentProviderWithModel(agentName config.AgentName, modelID models.Mod
 		provider.WithAPIKey(providerCfg.APIKey),
 		provider.WithProviderBaseURL(providerCfg.BaseURL),
 		provider.WithModel(model),
-		provider.WithSystemMessage(prompt.GetAgentPrompt(agentName, model.Provider)),
+		provider.WithSystemMessage(prompt.GetAgentPrompt(agentName, model.Provider, mode)),
 		provider.WithMaxTokens(maxTokens),
 	}
 	if model.Provider == models.ProviderOpenAI || model.Provider == models.ProviderLocal && model.CanReason {
@@ -874,7 +901,7 @@ func CreateAgentProviderWithModel(agentName config.AgentName, modelID models.Mod
 	return agentProvider, nil
 }
 
-func createAgentProvider(agentName config.AgentName) (provider.Provider, error) {
+func createAgentProvider(agentName config.AgentName, mode types.PermissionsMode) (provider.Provider, error) {
 	modelID := config.ActiveModel(context.Background(), models.GPT4oMini)
 	if agentName == config.AgentTitle {
 		modelID = config.ActiveModel(context.Background(), models.GPT4oMini)
@@ -904,7 +931,7 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 		provider.WithAPIKey(providerCfg.APIKey),
 		provider.WithProviderBaseURL(providerCfg.BaseURL),
 		provider.WithModel(model),
-		provider.WithSystemMessage(prompt.GetAgentPrompt(agentName, model.Provider)),
+		provider.WithSystemMessage(prompt.GetAgentPrompt(agentName, model.Provider, mode)),
 		provider.WithMaxTokens(maxTokens),
 	}
 	if model.Provider == models.ProviderOpenAI || model.Provider == models.ProviderLocal && model.CanReason {
