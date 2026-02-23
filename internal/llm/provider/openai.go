@@ -168,12 +168,16 @@ func (o *openaiClient) preparedParams(messages []openai.ChatCompletionMessagePar
 	params := openai.ChatCompletionNewParams{
 		Model:    openai.ChatModel(o.providerOptions.model.APIModel),
 		Messages: messages,
-		Tools:    tools,
+	}
+
+	// Only set Tools if non-empty - some APIs (e.g., Dashscope/Qwen) reject empty tools arrays with 400 errors
+	if len(tools) > 0 {
+		params.Tools = tools
 	}
 
 	// Debug: Log the model being used
-	logging.InfoPersist(fmt.Sprintf("[OpenAI Client] PreparedParams - Model ID: %s, APIModel: %q, Provider: %s, CanReason: %v",
-		o.providerOptions.model.ID, o.providerOptions.model.APIModel, o.providerOptions.model.Provider, o.providerOptions.model.CanReason))
+	logging.InfoPersist(fmt.Sprintf("[OpenAI Client] PreparedParams - Model ID: %s, APIModel: %q, Provider: %s, CanReason: %v, Tools: %d",
+		o.providerOptions.model.ID, o.providerOptions.model.APIModel, o.providerOptions.model.Provider, o.providerOptions.model.CanReason, len(tools)))
 
 	if o.providerOptions.model.CanReason == true {
 		params.MaxCompletionTokens = openai.Int(o.providerOptions.maxTokens)
