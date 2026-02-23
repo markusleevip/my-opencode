@@ -524,7 +524,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, a.themeDialog.Init()
 			}
 			return a, nil
-		case key.Matches(msg, returnKey) || key.Matches(msg):
+		case key.Matches(msg, returnKey) || key.Matches(msg, logsKeyReturnKey):
 			if msg.String() == quitKey {
 				if a.currentPage == page.LogsPage {
 					return a, a.moveToPage(page.ChatPage)
@@ -688,7 +688,7 @@ func (a *appModel) findCommand(id string) (dialog.Command, bool) {
 }
 
 func (a *appModel) moveToPage(pageID page.PageID) tea.Cmd {
-	if a.app.CoderAgent.IsBusy() {
+	if a.app.CoderAgent.IsBusy() && pageID != page.ChatPage && pageID != page.LogsPage {
 		// For now we don't move to any page if the agent is busy
 		return util.ReportWarn("Agent is busy, please wait...")
 	}

@@ -24,29 +24,29 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "opencode",
+	Use:   "myopencode",
 	Short: "Terminal-based AI assistant for software development",
-	Long: `OpenCode is a powerful terminal-based AI assistant that helps with software development tasks.
+	Long: `MyOpenCode is a powerful terminal-based AI assistant that helps with software development tasks.
 It provides an interactive chat interface with AI capabilities, code analysis, and LSP integration
 to assist developers in writing, debugging, and understanding code directly from the terminal.`,
 	Example: `
   # Run in interactive mode
-  opencode
+  myopencode
 
   # Run with debug logging
-  opencode -d
+  myopencode -d
 
   # Run with debug logging in a specific directory
-  opencode -d -c /path/to/project
+  myopencode -d -c /path/to/project
 
   # Print version
-  opencode -v
+  myopencode -v
 
   # Run a single non-interactive prompt
-  opencode -p "Explain the use of context in Go"
+  myopencode -p "Explain the use of context in Go"
 
   # Run a single non-interactive prompt with JSON output format
-  opencode -p "Explain the use of context in Go" -f json
+  myopencode -p "Explain the use of context in Go" -f json
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// If the help flag is set, show the help message

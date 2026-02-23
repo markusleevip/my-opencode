@@ -1,48 +1,37 @@
 # ⌬ MyOpenCode
 
-<p align="center"><img src="https://github.com/user-attachments/assets/9ae61ef6-70e5-4876-bc45-5bcb4e52c714" width="800"></p>
-
-> **⚠️ Active Development Notice:** This is a modified fork of OpenCode with enhanced configuration and ongoing development. Features may change, break, or be incomplete. Use at your own risk.
-
-A powerful terminal-based AI assistant for developers, providing intelligent coding assistance directly in your terminal.
+A powerful terminal-based AI assistant for developers, providing intelligent coding assistance directly in your terminal. This project focuses on high-performance AI interactions, robust response handling, and deep integration with developer workflows.
 
 ## Overview
 
-MyOpenCode is a Go-based CLI application that brings AI assistance to your terminal. It provides a TUI (Terminal User Interface) for interacting with various AI models to help with coding tasks, debugging, and more. This is a modified fork of the original OpenCode project with enhanced configuration capabilities and ongoing development.
+MyOpenCode is a Go-based CLI application that brings AI assistance to your terminal. It provides a TUI (Terminal User Interface) for interacting with various AI models to help with coding tasks, debugging, and more. This fork focuses on flexibility, supporting dynamic AI providers and robust handling of long AI responses.
 
-<p>For a quick video overview, check out
-<a href="https://www.youtube.com/watch?v=P8luPmEa1QI"><img width="25" src="https://upload.wikimedia.org/wikipedia/commons/0/09/YouTube_full-color_icon_%282017%29.svg"> OpenCode + Gemini 2.5 Pro: BYE Claude Code! I'm SWITCHING To the FASTEST AI Coder!</a></p>
+## Key Features
 
-<a href="https://www.youtube.com/watch?v=P8luPmEa1QI"><img width="550" src="https://i3.ytimg.com/vi/P8luPmEa1QI/maxresdefault.jpg"></a><p>
-
-## Features
-
-- **Interactive TUI**: Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) for a smooth terminal experience
-- **Multiple AI Providers**: Support for OpenAI, Anthropic Claude, Google Gemini, AWS Bedrock, Groq, Azure OpenAI, and OpenRouter
-- **Enhanced Configuration**: Improved configuration system with better flexibility and customization options
-- **Session Management**: Save and manage multiple conversation sessions
-- **Tool Integration**: AI can execute commands, search files, and modify code
-- **Vim-like Editor**: Integrated editor with text input capabilities
-- **Persistent Storage**: SQLite database for storing conversations and sessions
-- **LSP Integration**: Language Server Protocol support for code intelligence
-- **File Change Tracking**: Track and visualize file changes during sessions
-- **External Editor Support**: Open your preferred editor for composing messages
-- **Named Arguments for Custom Commands**: Create powerful custom commands with multiple named placeholders
+- **Dynamic AI Providers**: Easily add OpenAI-compatible providers (DeepSeek, Groq, Bailian, etc.) via JSON configuration.
+- **Provider-Specific Model IDs**: Use the `provider::model` syntax (e.g., `deepseek::chat`) for unambiguous model selection.
+- **Truncation Recovery**: Automatically detects truncated AI responses (e.g., hitting `max_tokens`) and triggers a "Continue" loop to merge results into a single, valid response.
+- **DeepSeek R1 Support**: Full support for reasoning models, including thinking process display and context preservation.
+- **Interactive TUI**: Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) featuring a split-view chat and a refined, real-time log explorer with text wrapping.
+- **Session Management**: Save and manage multiple conversation sessions with SQLite persistence.
+- **Tool Integration**: AI can execute commands, search files, and modify code based on your requirements.
+- **LSP Integration**: Language Server Protocol support for deep code intelligence.
+- **Custom Max Tokens**: Configure per-model limits to stay within provider boundaries (e.g., DeepSeek's 8,192 token limit).
 
 ## Installation
 
 ### Using Go
 
 ```bash
-go install myopencode@latest
+go install github.com/markusleevip/my-opencode@latest
 ```
 
 ### Building from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/myopencode.git
-cd myopencode
+git clone https://github.com/markusleevip/my-opencode.git
+cd my-opencode
 
 # Build
 go build -o myopencode
@@ -57,40 +46,49 @@ MyOpenCode features an enhanced configuration system with improved flexibility:
 
 ### Configuration Locations
 
-MyOpenCode looks for configuration in the following locations (in order of priority):
+The application looks for configuration in the following locations (in order of priority):
 
-1. `./.myopencode.json` (local directory - highest priority)
-2. `$XDG_CONFIG_HOME/myopencode/.myopencode.json`
-3. `$HOME/.myopencode.json`
+1. `./.opencode.json` (local directory - highest priority)
+2. `$XDG_CONFIG_HOME/opencode/.opencode.json`
+3. `$HOME/.opencode.json`
 
-### Enhanced Configuration Features
+### New Dynamic Provider Configuration
 
-- **Hierarchical Configuration**: Multiple configuration files can be combined with local settings taking precedence
-- **Improved Validation**: Better error messages and validation for configuration options
-- **Dynamic Reloading**: Configuration can be reloaded without restarting the application
-- **Template Support**: Configuration templates for different use cases
+You can now add any OpenAI-compatible provider directly in your `.opencode.json`:
+
+```json
+{
+  "provider": {
+    "deepseek": {
+      "name": "DeepSeek",
+      "apiKey": "your-api-key",
+      "options": {
+        "baseURL": "https://api.deepseek.com/v1"
+      },
+      "models": {
+        "chat": { "name": "DeepSeek Chat", "apiModel": "deepseek-chat" },
+        "reasoner": { "name": "DeepSeek R1", "apiModel": "deepseek-reasoner", "canReason": true }
+      }
+    }
+  }
+}
+```
 
 ### Basic Configuration Structure
 
 ```json
 {
   "data": {
-    "directory": ".myopencode"
+    "directory": ".opencode"
   },
   "providers": {
-    "openai": {
-      "apiKey": "your-api-key",
-      "disabled": false
-    },
-    "anthropic": {
-      "apiKey": "your-api-key",
-      "disabled": false
-    }
+    "openai": { "apiKey": "sk-...", "disabled": false },
+    "anthropic": { "apiKey": "sk-ant-...", "disabled": false }
   },
   "agents": {
     "coder": {
-      "model": "claude-3.7-sonnet",
-      "maxTokens": 5000
+      "model": "anthropic::claude-3-7-sonnet-20250219",
+      "maxTokens": 8192
     }
   },
   "debug": false,
@@ -100,55 +98,29 @@ MyOpenCode looks for configuration in the following locations (in order of prior
 
 ### Environment Variables
 
-All configuration options can also be set via environment variables using the `MYOPENCODE_` prefix:
+Configuration options can be set via environment variables using the `OPENCODE_` prefix:
 
 ```bash
-export MYOPENCODE_PROVIDERS_OPENAI_APIKEY="your-api-key"
-export MYOPENCODE_AGENTS_CODER_MODEL="claude-3.7-sonnet"
-export MYOPENCODE_DEBUG="true"
+export OPENCODE_PROVIDERS_OPENAI_APIKEY="your-api-key"
+export OPENCODE_AGENTS_CODER_MODEL="deepseek::reasoner"
+export OPENCODE_DEBUG="true"
 ```
 
 ## Usage
 
 ```bash
-# Start MyOpenCode
+# Start MyOpenCode (Interactive TUI)
 myopencode
 
-# Start with debug logging
-myopencode -d
+# Switch models in TUI
+# Type: /model deepseek
 
 # Start with a specific working directory
 myopencode -c /path/to/project
 
 # Run a single prompt in non-interactive mode
-myopencode -p "Explain the use of context in Go"
+myopencode -p "Fix the bug in main.go"
 ```
-
-## Non-interactive Prompt Mode
-
-You can run MyOpenCode in non-interactive mode by passing a prompt directly as a command-line argument:
-
-```bash
-# Run a single prompt and print the AI's response to the terminal
-myopencode -p "Explain the use of context in Go"
-
-# Get response in JSON format
-myopencode -p "Explain the use of context in Go" -f json
-
-# Run without showing the spinner (useful for scripts)
-myopencode -p "Explain the use of context in Go" -q
-```
-
-## Command-line Flags
-
-| Flag              | Short | Description                                         |
-| ----------------- | ----- | --------------------------------------------------- |
-| `--help`          | `-h`  | Display help information                            |
-| `--debug`         | `-d`  | Enable debug mode                                   |
-| `--cwd`           | `-c`  | Set current working directory                       |
-| `--prompt`        | `-p`  | Run a single prompt in non-interactive mode         |
-| `--output-format` | `-f`  | Output format for non-interactive mode (text, json) |
-| `--quiet`         | `-q`  | Hide spinner in non-interactive mode                |
 
 ## Development
 
@@ -164,48 +136,14 @@ go build -o myopencode
 
 # Run tests
 go test ./...
-
-# Run with specific configuration
-MYOPENCODE_DEBUG=true ./myopencode
 ```
-
-### Project Structure
-
-- `cmd/`: Command-line interface using Cobra
-- `internal/app/`: Core application services
-- `internal/config/`: Enhanced configuration management
-- `internal/db/`: Database operations and migrations
-- `internal/llm/`: LLM providers and tools integration
-- `internal/tui/`: Terminal UI components and layouts
-- `internal/logging/`: Logging infrastructure
 
 ## Differences from Original OpenCode
 
-1. **Enhanced Configuration**: More flexible configuration system with hierarchical support
-2. **Environment Variable Prefix**: Uses `MYOPENCODE_` prefix instead of generic environment variables
-3. **Configuration File Name**: Uses `.myopencode.json` instead of `.opencode.json`
-4. **Active Development**: This fork is actively maintained and developed
-5. **Improved Error Handling**: Better validation and error messages for configuration
-
-## Roadmap
-
-- [ ] Add plugin system for extending functionality
-- [ ] Improve configuration validation and schema
-- [ ] Add more AI provider integrations
-- [ ] Enhance TUI with more customization options
-- [ ] Add configuration migration tools
-
-## Contributing
-
-Contributions are welcome! Here's how you can contribute:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-Please make sure to update tests as appropriate and follow the existing code style.
+1. **Enhanced Provider Logic**: Support for dynamic, user-defined providers without code changes.
+2. **Robust Content Merging**: Intelligent merging of parital JSON and text when responses are truncated.
+3. **Optimized for Coding**: Specifically tuned for large context windows and long-running generation tasks.
+4. **Improved Logging**: A high-performance log viewer designed for debugging complex AI agent interactions.
 
 ## License
 
@@ -213,9 +151,4 @@ MyOpenCode is licensed under the MIT License. See the [LICENSE](LICENSE) file fo
 
 ## Acknowledgments
 
-MyOpenCode is based on the original [OpenCode](https://github.com/opencode-ai/opencode) project. Special thanks to:
-
-- The original OpenCode developers and contributors
-- [@isaacphi](https://github.com/isaacphi) - For the [mcp-language-server](https://github.com/isaacphi/mcp-language-server) project
-- [@adamdottv](https://github.com/adamdottv) - For the design direction and UI/UX architecture
-- The Charm team for the excellent Bubble Tea framework
+MyOpenCode is based on the original [OpenCode](https://github.com/opencode-ai/opencode) project. Special thanks to the original developers and the Charm team for the Bubble Tea framework.
