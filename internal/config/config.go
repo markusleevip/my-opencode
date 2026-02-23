@@ -71,8 +71,12 @@ type Provider struct {
 
 // DynamicModelConfig defines a model entry in a dynamic provider definition.
 type DynamicModelConfig struct {
-	Name     string `json:"name" mapstructure:"name"`
-	APIModel string `json:"apiModel" mapstructure:"apiModel"`
+	Name                string `json:"name" mapstructure:"name"`
+	APIModel            string `json:"apiModel" mapstructure:"apiModel"`
+	MaxTokens           int64  `json:"maxTokens" mapstructure:"maxTokens"`
+	ContextWindow       int64  `json:"contextWindow" mapstructure:"contextWindow"`
+	CanReason           bool   `json:"canReason" mapstructure:"canReason"`
+	SupportsAttachments bool   `json:"supportsAttachments" mapstructure:"supportsAttachments"`
 }
 
 // DynamicProviderOptions defines the options block for a dynamic provider.
@@ -163,6 +167,9 @@ var cfg *Config
 var memoryProviders = make(map[models.ModelProvider]Provider)
 var memoryMu sync.RWMutex
 
+// Global viper instance with custom delimiter
+var V = viper.NewWithOptions(viper.KeyDelimiter("::"))
+
 // Load initializes the configuration from environment variables and config files.
 // If debug is true, debug mode is enabled and log level is set to debug.
 // It returns an error if configuration loading fails.
@@ -178,18 +185,23 @@ func Load(workingDir string, debug bool) (*Config, error) {
 	configureViper()
 	setDefaults(debug)
 
+	// Initialize models.ConfigSetter to set defaults using our custom Viper instance
+	models.ConfigSetter = func(key string, value any) {
+		V.SetDefault(key, value)
+	}
+
 	// First load local (project) config as the base
 	mergeLocalConfig(workingDir)
 
 	// Then read and merge global (home) config on top so it takes priority
-	if err := readConfig(viper.MergeInConfig()); err != nil {
+	if err := readConfig(V.MergeInConfig()); err != nil {
 		return cfg, err
 	}
 
 	setProviderDefaults()
 
 	// Apply configuration to the struct
-	if err := viper.Unmarshal(cfg); err != nil {
+	if err := V.Unmarshal(cfg); err != nil {
 		return cfg, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
@@ -268,36 +280,36 @@ func Reload() (*Config, error) {
 
 // configureViper sets up viper's configuration paths and environment variables.
 func configureViper() {
-	viper.SetConfigName(fmt.Sprintf(".%s", appName))
-	viper.SetConfigType("json")
-	viper.AddConfigPath("$HOME")
-	viper.AddConfigPath(fmt.Sprintf("$XDG_CONFIG_HOME/%s", appName))
-	viper.AddConfigPath(fmt.Sprintf("$HOME/.config/%s", appName))
-	viper.SetEnvPrefix(strings.ToUpper(appName))
-	viper.AutomaticEnv()
+	V.SetConfigName(fmt.Sprintf(".%s", appName))
+	V.SetConfigType("json")
+	V.AddConfigPath("$HOME")
+	V.AddConfigPath(fmt.Sprintf("$XDG_CONFIG_HOME/%s", appName))
+	V.AddConfigPath(fmt.Sprintf("$HOME/.config/%s", appName))
+	V.SetEnvPrefix(strings.ToUpper(appName))
+	V.AutomaticEnv()
 }
 
 // setDefaults configures default values for configuration options.
 func setDefaults(debug bool) {
-	viper.SetDefault("data.directory", defaultDataDirectory)
-	viper.SetDefault("contextPaths", defaultContextPaths)
-	viper.SetDefault("tui.theme", "opencode")
-	viper.SetDefault("autoCompact", true)
+	V.SetDefault("data::directory", defaultDataDirectory)
+	V.SetDefault("contextPaths", defaultContextPaths)
+	V.SetDefault("tui::theme", "opencode")
+	V.SetDefault("autoCompact", true)
 
 	// Set default shell from environment or fallback to /bin/bash
 	shellPath := os.Getenv("SHELL")
 	if shellPath == "" {
 		shellPath = "/bin/bash"
 	}
-	viper.SetDefault("shell.path", shellPath)
-	viper.SetDefault("shell.args", []string{"-l"})
+	V.SetDefault("shell::path", shellPath)
+	V.SetDefault("shell::args", []string{"-l"})
 
 	if debug {
-		viper.SetDefault("debug", true)
-		viper.Set("log.level", "debug")
+		V.SetDefault("debug", true)
+		V.Set("log::level", "debug")
 	} else {
-		viper.SetDefault("debug", false)
-		viper.SetDefault("log.level", defaultLogLevel)
+		V.SetDefault("debug", false)
+		V.SetDefault("log::level", defaultLogLevel)
 	}
 }
 
@@ -307,29 +319,29 @@ func setProviderDefaults() {
 	// Set all API keys we can find in the environment
 	// Note: Viper does not default if the json apiKey is ""
 	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.anthropic.apiKey", apiKey)
+		V.SetDefault("providers::anthropic::apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.openai.apiKey", apiKey)
+		V.SetDefault("providers::openai::apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.gemini.apiKey", apiKey)
+		V.SetDefault("providers::gemini::apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("GROQ_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.groq.apiKey", apiKey)
+		V.SetDefault("providers::groq::apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.openrouter.apiKey", apiKey)
+		V.SetDefault("providers::openrouter::apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("ZHIPU_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.zhipu.apiKey", apiKey)
+		V.SetDefault("providers::zhipu::apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("XAI_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.xai.apiKey", apiKey)
+		V.SetDefault("providers::xai::apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("AZURE_OPENAI_ENDPOINT"); apiKey != "" {
 		// api-key may be empty when using Entra ID credentials – that's okay
-		viper.SetDefault("providers.azure.apiKey", os.Getenv("AZURE_OPENAI_API_KEY"))
+		V.SetDefault("providers::azure::apiKey", os.Getenv("AZURE_OPENAI_API_KEY"))
 	}
 	// NOTE: Copilot provider is NOT auto-registered here.
 	// Users who want to use Copilot should explicitly configure it
@@ -394,14 +406,14 @@ func readConfig(err error) error {
 // mergeLocalConfig loads and merges configuration from the local directory.
 // The local config is loaded as a base; global (home) config is merged on top with higher priority.
 func mergeLocalConfig(workingDir string) {
-	local := viper.New()
+	local := viper.NewWithOptions(viper.KeyDelimiter("::"))
 	local.SetConfigName(fmt.Sprintf(".%s", appName))
 	local.SetConfigType("json")
 	local.AddConfigPath(workingDir)
 
 	// Load local config as base if it exists
 	if err := local.ReadInConfig(); err == nil {
-		viper.MergeConfigMap(local.AllSettings())
+		V.MergeConfigMap(local.AllSettings())
 	}
 }
 
@@ -502,7 +514,7 @@ func updateCfgFile(updateCfg func(config *Config)) error {
 	}
 
 	// Get the config file path
-	configFile := viper.ConfigFileUsed()
+	configFile := V.ConfigFileUsed()
 	var configData []byte
 	if configFile == "" {
 		homeDir, err := os.UserHomeDir()
@@ -731,6 +743,7 @@ func registerDynamicProviders() {
 
 		// Register all models declared in this provider
 		for modelKey, modelCfg := range def.Models {
+			logging.Debug("Registering dynamic model", "provider", providerKey, "modelKey", modelKey)
 			name := modelCfg.Name
 			if name == "" {
 				name = modelKey
@@ -739,7 +752,16 @@ func registerDynamicProviders() {
 			if apiModel == "" {
 				apiModel = modelKey
 			}
-			models.RegisterDynamicModel(providerKey, modelKey, apiModel, name)
+			models.RegisterDynamicModel(
+				providerKey,
+				modelKey,
+				apiModel,
+				name,
+				modelCfg.MaxTokens,
+				modelCfg.ContextWindow,
+				modelCfg.CanReason,
+				modelCfg.SupportsAttachments,
+			)
 			logging.Info("Registered dynamic model", "model", providerKey+"::"+modelKey, "name", name, "apiModel", apiModel)
 		}
 

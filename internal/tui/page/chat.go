@@ -236,22 +236,33 @@ func (p *chatPage) BindingKeys() []key.Binding {
 // switchModel changes the active model for the coder agent by model ID.
 // Accepts "provider.model" or "provider/model" format.
 func (p *chatPage) switchModel(modelArg string) tea.Cmd {
-	// Normalize: replace / or . with :: for internal ID
+	// 1. Try exact match first
+	id := models.ModelID(modelArg)
+	if _, ok := models.SupportedModels[id]; ok {
+		return p.applyModelSwitch(id, modelArg)
+	}
+
+	// 2. Try normalizing "provider/model" or "provider.model" to "provider::model"
+	// We only replace the FIRST occurrence of / or . to avoid breaking version numbers like qwen3.5
 	normalized := modelArg
-	normalized = strings.ReplaceAll(normalized, "/", "::")
-	if !strings.Contains(normalized, "::") {
-		normalized = strings.ReplaceAll(normalized, ".", "::")
+	if idx := strings.IndexAny(normalized, "/."); idx != -1 {
+		normalized = normalized[:idx] + "::" + normalized[idx+1:]
 	}
-	id := models.ModelID(normalized)
-	model, ok := models.SupportedModels[id]
-	if !ok {
-		return util.ReportWarn("Unknown model: " + modelArg)
+
+	id = models.ModelID(normalized)
+	if model, ok := models.SupportedModels[id]; ok {
+		return p.applyModelSwitch(id, model.Name)
 	}
+
+	return util.ReportWarn("Unknown model: " + modelArg)
+}
+
+func (p *chatPage) applyModelSwitch(id models.ModelID, displayName string) tea.Cmd {
 	_, err := p.app.CoderAgent.Update(config.AgentCoder, id)
 	if err != nil {
 		return util.ReportError(err)
 	}
-	return util.ReportInfo("Model switched to " + model.Name)
+	return util.ReportInfo("Model switched to " + displayName)
 }
 
 func NewChatPage(app *app.App) tea.Model {
