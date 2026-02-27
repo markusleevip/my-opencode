@@ -28,7 +28,11 @@ func BuildSkillContext(matchedSkills []MatchResult, index *SkillIndex) string {
 		}
 
 		sb.WriteString(fmt.Sprintf("### %s\n", skill.Metadata.Name))
-		sb.WriteString(fmt.Sprintf("**Description**: %s\n\n", skill.Metadata.Description))
+		sb.WriteString(fmt.Sprintf("**Description**: %s\n", skill.Metadata.Description))
+		// Add the absolute path to the skill directory, so the LLM knows where to find the scripts.
+		// Windows paths often contain \ which need to be printed correctly.
+		sb.WriteString(fmt.Sprintf("**Skill Directory Path**: `%s`\n", skill.Path))
+		sb.WriteString("> **IMPORTANT**: When running scripts from this skill (e.g. `python scripts/...`), you MUST use the **absolute path** by prepending the Skill Directory Path. DO NOT assume the scripts are in your current working directory.\n\n")
 
 		// Include skill body, truncated if necessary
 		// Use runes for safe UTF-8 truncation

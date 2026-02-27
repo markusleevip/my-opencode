@@ -1,4 +1,3 @@
-
 package agent
 
 import (
@@ -612,6 +611,14 @@ func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msg
 				}
 				a.finishMessage(ctx, &assistantMsg, message.FinishReasonPermissionDenied)
 				break
+			} else {
+				// For any other error, pass the error message back to the LLM
+				toolResults[i] = message.ToolResult{
+					ToolCallID: toolCall.ID,
+					Content:    fmt.Sprintf("Tool Execution Error: %s", toolErr.Error()),
+					IsError:    true,
+				}
+				continue
 			}
 		}
 		toolResults[i] = message.ToolResult{

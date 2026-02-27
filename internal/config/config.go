@@ -309,13 +309,22 @@ func setDefaults(debug bool) {
 	V.SetDefault("tui::theme", "opencode")
 	V.SetDefault("autoCompact", true)
 
-	// Set default shell from environment or fallback to /bin/bash
-	shellPath := os.Getenv("SHELL")
-	if shellPath == "" {
-		shellPath = "/bin/bash"
+	// Set default shell from environment or platform default
+	var defaultShellPath string
+	var defaultShellArgs []string
+	if runtime.GOOS == "windows" {
+		// On Windows, default to PowerShell
+		defaultShellPath = "powershell.exe"
+		defaultShellArgs = []string{"-NoProfile", "-NonInteractive", "-NoLogo", "-Command", "-"}
+	} else {
+		defaultShellPath = os.Getenv("SHELL")
+		if defaultShellPath == "" {
+			defaultShellPath = "/bin/bash"
+		}
+		defaultShellArgs = []string{"-l"}
 	}
-	V.SetDefault("shell::path", shellPath)
-	V.SetDefault("shell::args", []string{"-l"})
+	V.SetDefault("shell::path", defaultShellPath)
+	V.SetDefault("shell::args", defaultShellArgs)
 
 	if debug {
 		V.SetDefault("debug", true)
