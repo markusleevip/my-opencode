@@ -98,6 +98,10 @@ func (t *fetchTool) Info() ToolInfo {
 	}
 }
 
+func (t *fetchTool) IsReadOnly() bool {
+	return false
+}
+
 func (t *fetchTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error) {
 	var params FetchParams
 	if err := json.Unmarshal([]byte(call.Input), &params); err != nil {

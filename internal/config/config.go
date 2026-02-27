@@ -139,9 +139,11 @@ type Config struct {
 
 // Application constants
 const (
-	defaultDataDirectory = ".opencode"
-	defaultLogLevel      = "info"
-	appName              = "opencode"
+	DefaultDataDirectory = ".my-opencode"
+	ConfigDirName        = ".my-opencode"
+	ConfigFileName       = "settings"
+	DefaultLogLevel      = "info"
+	AppName              = "opencode"
 
 	MaxTokensFallbackDefault = 8192
 )
@@ -280,36 +282,56 @@ func Reload() (*Config, error) {
 
 // configureViper sets up viper's configuration paths and environment variables.
 func configureViper() {
-	V.SetConfigName(fmt.Sprintf(".%s", appName))
+	// Get home directory for config paths
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		// Fallback to environment variables
+		homeDir = os.Getenv("USERPROFILE")
+		if homeDir == "" {
+			homeDir = os.Getenv("HOME")
+		}
+	}
+
+	V.SetConfigName("settings")
 	V.SetConfigType("json")
-	V.AddConfigPath("$HOME")
-	V.AddConfigPath(fmt.Sprintf("$XDG_CONFIG_HOME/%s", appName))
-	V.AddConfigPath(fmt.Sprintf("$HOME/.config/%s", appName))
-	V.SetEnvPrefix(strings.ToUpper(appName))
+	V.AddConfigPath(homeDir + "/.my-opencode")
+	V.AddConfigPath(homeDir)
+	V.AddConfigPath(fmt.Sprintf("$XDG_CONFIG_HOME/%s", AppName))
+	V.AddConfigPath(homeDir + "/.config/" + AppName)
+	V.SetEnvPrefix(strings.ToUpper(AppName))
 	V.AutomaticEnv()
 }
 
 // setDefaults configures default values for configuration options.
 func setDefaults(debug bool) {
-	V.SetDefault("data::directory", defaultDataDirectory)
+	V.SetDefault("data::directory", DefaultDataDirectory)
 	V.SetDefault("contextPaths", defaultContextPaths)
 	V.SetDefault("tui::theme", "opencode")
 	V.SetDefault("autoCompact", true)
 
-	// Set default shell from environment or fallback to /bin/bash
-	shellPath := os.Getenv("SHELL")
-	if shellPath == "" {
-		shellPath = "/bin/bash"
+	// Set default shell from environment or platform default
+	var defaultShellPath string
+	var defaultShellArgs []string
+	if runtime.GOOS == "windows" {
+		// On Windows, default to PowerShell
+		defaultShellPath = "powershell.exe"
+		defaultShellArgs = []string{"-NoProfile", "-NonInteractive", "-NoLogo", "-Command", "-"}
+	} else {
+		defaultShellPath = os.Getenv("SHELL")
+		if defaultShellPath == "" {
+			defaultShellPath = "/bin/bash"
+		}
+		defaultShellArgs = []string{"-l"}
 	}
-	V.SetDefault("shell::path", shellPath)
-	V.SetDefault("shell::args", []string{"-l"})
+	V.SetDefault("shell::path", defaultShellPath)
+	V.SetDefault("shell::args", defaultShellArgs)
 
 	if debug {
 		V.SetDefault("debug", true)
 		V.Set("log::level", "debug")
 	} else {
 		V.SetDefault("debug", false)
-		V.SetDefault("log::level", defaultLogLevel)
+		V.SetDefault("log::level", DefaultLogLevel)
 	}
 }
 
@@ -407,7 +429,7 @@ func readConfig(err error) error {
 // The local config is loaded as a base; global (home) config is merged on top with higher priority.
 func mergeLocalConfig(workingDir string) {
 	local := viper.NewWithOptions(viper.KeyDelimiter("::"))
-	local.SetConfigName(fmt.Sprintf(".%s", appName))
+	local.SetConfigName("settings")
 	local.SetConfigType("json")
 	local.AddConfigPath(workingDir)
 
@@ -521,7 +543,7 @@ func updateCfgFile(updateCfg func(config *Config)) error {
 		if err != nil {
 			return fmt.Errorf("failed to get home directory: %w", err)
 		}
-		configFile = filepath.Join(homeDir, fmt.Sprintf(".%s.json", appName))
+		configFile = filepath.Join(homeDir, ConfigDirName, ConfigFileName)
 		logging.Info("config file not found, creating new one", "path", configFile)
 		configData = []byte(`{}`)
 	} else {

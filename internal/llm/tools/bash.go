@@ -227,6 +227,10 @@ func (b *bashTool) Info() ToolInfo {
 	}
 }
 
+func (b *bashTool) IsReadOnly() bool {
+	return false
+}
+
 func (b *bashTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error) {
 	var params BashParams
 	if err := json.Unmarshal([]byte(call.Input), &params); err != nil {
@@ -285,6 +289,9 @@ func (b *bashTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error)
 	}
 	startTime := time.Now()
 	shell := shell.GetPersistentShell(config.WorkingDirectory())
+	if shell == nil {
+		return ToolResponse{}, fmt.Errorf("error executing command: failed to initialize persistent shell")
+	}
 	stdout, stderr, exitCode, interrupted, err := shell.Exec(ctx, params.Command, params.Timeout)
 	if err != nil {
 		return ToolResponse{}, fmt.Errorf("error executing command: %w", err)

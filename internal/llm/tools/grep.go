@@ -109,6 +109,10 @@ func (g *grepTool) Info() ToolInfo {
 	}
 }
 
+func (g *grepTool) IsReadOnly() bool {
+	return true
+}
+
 // escapeRegexPattern escapes special regex characters so they're treated as literal characters
 func escapeRegexPattern(pattern string) string {
 	specialChars := []string{"\\", ".", "+", "*", "?", "(", ")", "[", "]", "{", "}", "^", "$", "|"}

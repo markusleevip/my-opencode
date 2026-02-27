@@ -87,6 +87,10 @@ func (g *globTool) Info() ToolInfo {
 	}
 }
 
+func (g *globTool) IsReadOnly() bool {
+	return true
+}
+
 func (g *globTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error) {
 	var params GlobParams
 	if err := json.Unmarshal([]byte(call.Input), &params); err != nil {

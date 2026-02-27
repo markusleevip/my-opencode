@@ -15,6 +15,7 @@ MyOpenCode is a Go-based CLI application that brings AI assistance to your termi
 - **Interactive TUI**: Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) featuring a split-view chat and a refined, real-time log explorer with text wrapping.
 - **Session Management**: Save and manage multiple conversation sessions with SQLite persistence.
 - **Tool Integration**: AI can execute commands, search files, and modify code based on your requirements.
+- **Skills System**: Extensible "Skills" mechanism that allows the AI to discover and use domain-specific instructions and scripts from `~/.my-opencode/skills/`.
 - **LSP Integration**: Language Server Protocol support for deep code intelligence.
 - **Custom Max Tokens**: Configure per-model limits to stay within provider boundaries (e.g., DeepSeek's 8,192 token limit).
 
@@ -48,18 +49,18 @@ MyOpenCode features an enhanced configuration system with improved flexibility:
 
 The application looks for configuration in the following locations (in order of priority):
 
-1. `./.opencode.json` (local directory - highest priority)
-2. `$XDG_CONFIG_HOME/opencode/.opencode.json`
-3. `$HOME/.opencode.json`
+1. `./settings.json` (local directory - highest priority)
+2. `$HOME/.my-opencode/settings.json`
+3. `$XDG_CONFIG_HOME/opencode/settings.json`
 
-### Configuration Example (.opencode.json)
+### Configuration Example (settings.json)
 
-Here is a comprehensive example of `.opencode.json` based on a real-world setup, supporting multiple dynamic providers, custom TUI themes, and shell settings:
+Here is a comprehensive example of `settings.json` based on a real-world setup, supporting multiple dynamic providers, custom TUI themes, and shell settings:
 
 ```json
 {
   "data": {
-    "directory": ".opencode"
+    "directory": ".my-opencode"
   },
   "provider": {
     "deepseek": {
@@ -111,8 +112,8 @@ Here is a comprehensive example of `.opencode.json` based on a real-world setup,
     "theme": "default"
   },
   "shell": {
-    "path": "cmd",
-    "args": ["-l"]
+    "path": "powershell.exe",
+    "args": ["-NoProfile", "-NonInteractive", "-NoLogo", "-Command", "-"]
   },
   "autoCompact": true,
   "contextPaths": [
@@ -123,7 +124,37 @@ Here is a comprehensive example of `.opencode.json` based on a real-world setup,
 }
 ```
 
-### Environment Variables
+### Skills
+
+MyOpenCode features a powerful "Skills" system that allows you to extend the assistant's capabilities with custom instructions and scripts. 
+
+### How it Works
+
+1. **Discovery**: On startup, the assistant automatically scans `~/.my-opencode/skills/` for subdirectories.
+2. **Definition**: Each skill directory must contain a `SKILL.md` file with optional YAML frontmatter.
+3. **Execution**: The assistant can read these instructions and, if provided, execute scripts located in the skill's `scripts/` directory.
+
+### Skill Structure
+
+```
+~/.my-opencode/skills/
+  └── my-skill/
+      ├── SKILL.md       # Target instructions and metadata
+      ├── scripts/       # Helper scripts the AI can run
+      └── resources/     # Additional context files
+```
+
+### SKILL.md Example
+
+```markdown
+---
+name: PDF Generator
+description: Tools for converting markdown to professional PDF documents
+---
+Explain to the AI how to use this skill...
+```
+
+## Environment Variables
 
 Configuration options can be set via environment variables using the `OPENCODE_` prefix:
 

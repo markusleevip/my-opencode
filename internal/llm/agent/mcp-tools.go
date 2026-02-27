@@ -48,6 +48,10 @@ func (b *mcpTool) Info() tools.ToolInfo {
 	}
 }
 
+func (b *mcpTool) IsReadOnly() bool {
+	return false
+}
+
 func runTool(ctx context.Context, c MCPClient, toolName string, input string) (tools.ToolResponse, error) {
 	defer c.Close()
 	initRequest := mcp.InitializeRequest{}

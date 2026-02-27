@@ -10,6 +10,7 @@ import (
 	"myopencode/internal/llm/agent"
 	"myopencode/internal/logging"
 	"myopencode/internal/permission"
+	"myopencode/internal/permission/types"
 	"myopencode/internal/pubsub"
 	"myopencode/internal/session"
 	"myopencode/internal/tui/components/chat"
@@ -34,6 +35,7 @@ type keyMap struct {
 	Filepicker    key.Binding
 	Models        key.Binding
 	SwitchTheme   key.Binding
+	ModeToggle    key.Binding
 }
 
 type startCompactSessionMsg struct{}
@@ -78,6 +80,10 @@ var keys = keyMap{
 	SwitchTheme: key.NewBinding(
 		key.WithKeys("ctrl+t"),
 		key.WithHelp("ctrl+t", "switch theme"),
+	),
+	ModeToggle: key.NewBinding(
+		key.WithKeys("alt+m"),
+		key.WithHelp("alt+m", "toggle permissions mode"),
 	),
 }
 
@@ -185,7 +191,9 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		msg.Height -= 1 // Make space for the status bar
+		if msg.Height > 0 {
+			msg.Height -= 1 // Make space for the status bar
+		}
 		a.width, a.height = msg.Width, msg.Height
 
 		s, _ := a.status.Update(msg)
@@ -524,6 +532,31 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, a.themeDialog.Init()
 			}
 			return a, nil
+			return a, nil
+		case key.Matches(msg, keys.ModeToggle):
+			if !a.showQuit && !a.showPermissions && !a.showSessionDialog && !a.showCommandDialog {
+				current := a.app.CoderAgent.PermissionsMode()
+				var next types.PermissionsMode
+				switch current {
+				case types.ActManual:
+					next = types.ActAuto
+				case types.ActAuto:
+					next = types.Plan
+				case types.Plan:
+					next = types.ActManual
+				default:
+					next = types.ActManual
+				}
+				a.app.CoderAgent.SetPermissionsMode(next)
+
+				// Coordinate with PermissionService if needed (e.g., auto-approve)
+				if next == types.ActAuto {
+					a.app.Permissions.AutoApproveSession(a.selectedSession.ID)
+				}
+
+				return a, util.ReportInfo(fmt.Sprintf("Permissions mode: %s", next))
+			}
+			return a, nil
 		case key.Matches(msg, returnKey) || key.Matches(msg, logsKeyReturnKey):
 			if msg.String() == quitKey {
 				if a.currentPage == page.LogsPage {
@@ -716,7 +749,7 @@ func (a appModel) View() string {
 
 	components = append(components, a.status.View())
 
-	appView := lipgloss.JoinVertical(lipgloss.Top, components...)
+	appView := lipgloss.JoinVertical(lipgloss.Left, components...)
 
 	if a.showPermissions {
 		overlay := a.permissions.View()
@@ -913,7 +946,7 @@ func New(app *app.App) tea.Model {
 	model := &appModel{
 		currentPage:   startPage,
 		loadedPages:   make(map[page.PageID]bool),
-		status:        core.NewStatusCmp(app.LSPClients),
+		status:        core.NewStatusCmp(app.LSPClients, app.CoderAgent),
 		help:          dialog.NewHelpCmp(),
 		quit:          dialog.NewQuitCmp(),
 		sessionDialog: dialog.NewSessionDialogCmp(),

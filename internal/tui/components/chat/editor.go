@@ -17,6 +17,7 @@ import (
 	"myopencode/internal/tui/styles"
 	"myopencode/internal/tui/theme"
 	"myopencode/internal/tui/util"
+	"myopencode/internal/version"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -133,12 +134,110 @@ func (m *editorCmp) send() tea.Cmd {
 	if value == "" {
 		return nil
 	}
+
+	// Handle slash commands
+	if strings.HasPrefix(value, "/") {
+		return m.handleSlashCommand(value)
+	}
+
 	return tea.Batch(
 		util.CmdHandler(SendMsg{
 			Text:        value,
 			Attachments: attachments,
 		}),
 	)
+}
+
+// handleSlashCommand handles slash commands like /skills, /help, etc.
+func (m *editorCmp) handleSlashCommand(input string) tea.Cmd {
+	parts := strings.Fields(input)
+	if len(parts) == 0 {
+		return nil
+	}
+
+	cmd := parts[0]
+	args := parts[1:]
+
+	switch cmd {
+	case "/skills":
+		return m.handleSkillsCommand(args)
+	case "/help":
+		return m.handleHelpCommand()
+	case "/clear":
+		return m.handleClearCommand()
+	case "/version":
+		return util.ReportInfo("MyOpenCode version " + version.Version)
+	default:
+		return util.ReportWarn(fmt.Sprintf("Unknown command: %s. Type /help for available commands.", cmd))
+	}
+}
+
+// handleSkillsCommand handles /skills and its subcommands
+func (m *editorCmp) handleSkillsCommand(args []string) tea.Cmd {
+	if m.app.Skills == nil {
+		return util.ReportWarn("Skills system is not available")
+	}
+
+	if len(args) == 0 {
+		// List all skills
+		skills := m.app.Skills.ListSkills()
+		if len(skills) == 0 {
+			return util.ReportInfo("No skills found. Add skills to ~/.my-opencode/skills/")
+		}
+
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("Loaded %d skills:\n\n", len(skills)))
+		for _, skill := range skills {
+			sb.WriteString(fmt.Sprintf("  • %s - %s\n", skill.Metadata.Name, skill.Metadata.Description))
+		}
+		return util.ReportInfo(sb.String())
+	}
+
+	subcmd := args[0]
+	switch subcmd {
+	case "search":
+		query := strings.Join(args[1:], " ")
+		if query == "" {
+			return util.ReportWarn("Please provide a search query")
+		}
+		results := m.app.Skills.SearchSkills(query)
+		if len(results) == 0 {
+			return util.ReportInfo(fmt.Sprintf("No skills found matching '%s'", query))
+		}
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("Found %d skills matching '%s':\n\n", len(results), query))
+		for _, skill := range results {
+			sb.WriteString(fmt.Sprintf("  • %s - %s\n", skill.Metadata.Name, skill.Metadata.Description))
+		}
+		return util.ReportInfo(sb.String())
+	case "reload":
+		err := m.app.Skills.Reload()
+		if err != nil {
+			return util.ReportError(fmt.Errorf("failed to reload skills: %v", err))
+		}
+		return util.ReportInfo(fmt.Sprintf("Reloaded %d skills", m.app.Skills.Count()))
+	default:
+		return util.ReportWarn(fmt.Sprintf("Unknown /skills subcommand: %s. Use /skills to list all skills.", subcmd))
+	}
+}
+
+// handleHelpCommand shows available commands
+func (m *editorCmp) handleHelpCommand() tea.Cmd {
+	helpText := `Available commands:
+  /skills              - List all loaded skills
+  /skills search <q>   - Search skills by keyword
+  /skills reload       - Reload skills from disk
+  /clear               - Clear current session
+  /help                - Show this help message
+
+Skills are automatically loaded from ~/.my-opencode/skills/`
+	return util.ReportInfo(helpText)
+}
+
+// handleClearCommand clears the current session
+func (m *editorCmp) handleClearCommand() tea.Cmd {
+	// TODO: Implement session clear functionality
+	return util.ReportInfo("Clear functionality - coming soon")
 }
 
 func (m *editorCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

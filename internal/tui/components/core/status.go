@@ -7,9 +7,11 @@ import (
 	"time"
 
 	"myopencode/internal/config"
+	"myopencode/internal/llm/agent"
 	"myopencode/internal/llm/models"
 	"myopencode/internal/lsp"
 	"myopencode/internal/lsp/protocol"
+	"myopencode/internal/permission/types"
 	"myopencode/internal/pubsub"
 	"myopencode/internal/session"
 	"myopencode/internal/tui/components/chat"
@@ -26,11 +28,13 @@ type StatusCmp interface {
 }
 
 type statusCmp struct {
-	info       util.InfoMsg
-	width      int
-	messageTTL time.Duration
-	lspClients map[string]*lsp.Client
-	session    session.Session
+	info            util.InfoMsg
+	width           int
+	messageTTL      time.Duration
+	lspClients      map[string]*lsp.Client
+	session         session.Session
+	permissionsMode types.PermissionsMode
+	agent           agent.Service
 }
 
 // clearMessageCmd is a command that clears status messages after a timeout
@@ -60,6 +64,8 @@ func (m statusCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case util.InfoMsg:
+		// Check for mode change message or simply update from agent periodically
+		m.permissionsMode = m.agent.PermissionsMode()
 		m.info = msg
 		ttl := msg.TTL
 		if ttl == 0 {
@@ -145,12 +151,23 @@ func (m statusCmp) View() string {
 		Background(t.BackgroundDarker()).
 		Render(m.projectDiagnostics())
 
-	availableWidht := max(0, m.width-lipgloss.Width(helpWidget)-lipgloss.Width(m.model())-lipgloss.Width(diagnostics)-tokenInfoWidth)
+	// Permissions Mode
+	modeText := string(m.permissionsMode)
+	modeStyle := styles.Padded().
+		Background(t.Secondary()).
+		Foreground(t.Background())
+	if m.permissionsMode == types.Plan {
+		modeStyle = modeStyle.Background(t.Info())
+	}
+	modeView := modeStyle.Render(modeText)
+	status += modeView
+
+	availableWidth := max(0, m.width-lipgloss.Width(helpWidget)-lipgloss.Width(m.model())-lipgloss.Width(diagnostics)-tokenInfoWidth-lipgloss.Width(modeView))
 
 	if m.info.Msg != "" {
 		infoStyle := styles.Padded().
 			Foreground(t.Background()).
-			Width(availableWidht)
+			Width(availableWidth)
 
 		switch m.info.Type {
 		case util.InfoTypeInfo:
@@ -161,7 +178,7 @@ func (m statusCmp) View() string {
 			infoStyle = infoStyle.Background(t.Error())
 		}
 
-		infoWidth := availableWidht - 10
+		infoWidth := availableWidth - 2
 		// Truncate message if it's longer than available width
 		msg := m.info.Msg
 		if len(msg) > infoWidth && infoWidth > 0 {
@@ -172,13 +189,18 @@ func (m statusCmp) View() string {
 		status += styles.Padded().
 			Foreground(t.Text()).
 			Background(t.BackgroundSecondary()).
-			Width(availableWidht).
+			Width(availableWidth).
 			Render("")
 	}
 
 	status += diagnostics
 	status += m.model()
-	return status
+
+	// Ensure status bar is exactly one line and fits width
+	return lipgloss.NewStyle().
+		MaxWidth(m.width).
+		MaxHeight(1).
+		Render(status)
 }
 
 func (m *statusCmp) projectDiagnostics() string {
@@ -280,11 +302,13 @@ func (m statusCmp) model() string {
 		Render(model.Name)
 }
 
-func NewStatusCmp(lspClients map[string]*lsp.Client) StatusCmp {
+func NewStatusCmp(lspClients map[string]*lsp.Client, coderAgent agent.Service) StatusCmp {
 	helpWidget = getHelpWidget()
 
 	return &statusCmp{
-		messageTTL: 10 * time.Second,
-		lspClients: lspClients,
+		messageTTL:      10 * time.Second,
+		lspClients:      lspClients,
+		permissionsMode: coderAgent.PermissionsMode(),
+		agent:           coderAgent,
 	}
 }

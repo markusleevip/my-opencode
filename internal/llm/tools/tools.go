@@ -69,6 +69,7 @@ type ToolCall struct {
 type BaseTool interface {
 	Info() ToolInfo
 	Run(ctx context.Context, params ToolCall) (ToolResponse, error)
+	IsReadOnly() bool
 }
 
 func GetContextValues(ctx context.Context) (string, string) {

@@ -7,12 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"myopencode/internal/config"
+	"myopencode/internal/logging"
 )
 
 type PersistentShell struct {
@@ -72,15 +74,24 @@ func newPersistentShell(cwd string) *PersistentShell {
 	}
 
 	if shellPath == "" {
-		shellPath = os.Getenv("SHELL")
-		if shellPath == "" {
-			shellPath = "/bin/bash"
+		if runtime.GOOS == "windows" {
+			// On Windows, default to PowerShell
+			shellPath = "powershell.exe"
+		} else {
+			shellPath = os.Getenv("SHELL")
+			if shellPath == "" {
+				shellPath = "/bin/bash"
+			}
 		}
 	}
 
 	// Default shell args
 	if len(shellArgs) == 0 {
-		shellArgs = []string{"-l"}
+		if runtime.GOOS == "windows" {
+			shellArgs = []string{"-NoProfile", "-NonInteractive", "-NoLogo", "-Command", "-"}
+		} else {
+			shellArgs = []string{"-l"}
+		}
 	}
 
 	cmd := exec.Command(shellPath, shellArgs...)
@@ -88,6 +99,7 @@ func newPersistentShell(cwd string) *PersistentShell {
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
+		logging.Error("Failed to create stdin pipe for persistent shell", "shell", shellPath, "error", err)
 		return nil
 	}
 
@@ -95,6 +107,7 @@ func newPersistentShell(cwd string) *PersistentShell {
 
 	err = cmd.Start()
 	if err != nil {
+		logging.Error("Failed to start persistent shell", "shell", shellPath, "error", err)
 		return nil
 	}
 
@@ -161,18 +174,35 @@ func (s *PersistentShell) execCommand(command string, timeout time.Duration, ctx
 		os.Remove(cwdFile)
 	}()
 
-	fullCommand := fmt.Sprintf(`
+	var fullCommand string
+	if runtime.GOOS == "windows" {
+		// PowerShell command template:
+		// Run the command, redirect stdout and stderr to separate files,
+		// then write the exit code and cwd.
+		fullCommand = fmt.Sprintf(
+			"$ErrorActionPreference = 'Continue'; try { Invoke-Expression %s 1> %s 2> %s } catch { $_.Exception.Message | Out-File -FilePath %s -Encoding utf8 -Append }; if ($null -eq $LASTEXITCODE) { 0 | Out-File -FilePath %s -Encoding utf8 } else { $LASTEXITCODE | Out-File -FilePath %s -Encoding utf8 }; (Get-Location).Path | Out-File -FilePath %s -Encoding utf8\n",
+			psQuote(command),
+			psQuote(stdoutFile),
+			psQuote(stderrFile),
+			psQuote(stderrFile),
+			psQuote(statusFile),
+			psQuote(statusFile),
+			psQuote(cwdFile),
+		)
+	} else {
+		fullCommand = fmt.Sprintf(`
 eval %s < /dev/null > %s 2> %s
 EXEC_EXIT_CODE=$?
 pwd > %s
 echo $EXEC_EXIT_CODE > %s
 `,
-		shellQuote(command),
-		shellQuote(stdoutFile),
-		shellQuote(stderrFile),
-		shellQuote(cwdFile),
-		shellQuote(statusFile),
-	)
+			shellQuote(command),
+			shellQuote(stdoutFile),
+			shellQuote(stderrFile),
+			shellQuote(cwdFile),
+			shellQuote(statusFile),
+		)
+	}
 
 	_, err := s.stdin.Write([]byte(fullCommand + "\n"))
 	if err != nil {
@@ -248,6 +278,13 @@ func (s *PersistentShell) killChildren() {
 		return
 	}
 
+	if runtime.GOOS == "windows" {
+		// On Windows, use taskkill to kill the process tree
+		killCmd := exec.Command("taskkill", "/F", "/T", "/PID", fmt.Sprintf("%d", s.cmd.Process.Pid))
+		_ = killCmd.Run()
+		return
+	}
+
 	pgrepCmd := exec.Command("pgrep", "-P", fmt.Sprintf("%d", s.cmd.Process.Pid))
 	output, err := pgrepCmd.Output()
 	if err != nil {
@@ -303,6 +340,16 @@ func (s *PersistentShell) Close() {
 
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+func psQuote(s string) string {
+	if s == "" {
+		return "\"\""
+	}
+	// Escape double quotes and backticks for PowerShell
+	s = strings.ReplaceAll(s, "`", "``")
+	s = strings.ReplaceAll(s, "\"", "`\"")
+	return "\"" + s + "\""
 }
 
 func readFileOrEmpty(path string) string {

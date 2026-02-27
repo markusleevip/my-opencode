@@ -86,6 +86,10 @@ func (p *patchTool) Info() ToolInfo {
 	}
 }
 
+func (p *patchTool) IsReadOnly() bool {
+	return false
+}
+
 func (p *patchTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error) {
 	var params PatchParams
 	if err := json.Unmarshal([]byte(call.Input), &params); err != nil {

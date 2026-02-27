@@ -19,6 +19,7 @@ import (
 	"myopencode/internal/message"
 	"myopencode/internal/permission"
 	"myopencode/internal/session"
+	"myopencode/internal/skills"
 	"myopencode/internal/tui/theme"
 )
 
@@ -27,6 +28,7 @@ type App struct {
 	Messages    message.Service
 	History     history.Service
 	Permissions permission.Service
+	Skills      *skills.Manager
 
 	CoderAgent agent.Service
 
@@ -50,7 +52,17 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 		Messages:    messages,
 		History:     files,
 		Permissions: permission.NewPermissionService(),
+		Skills:      nil, // Will be initialized below
 		LSPClients:  make(map[string]*lsp.Client),
+	}
+
+	// Initialize skills manager (auto-discovers and loads skills)
+	skillsMgr, err := skills.NewManager()
+	if err != nil {
+		logging.Warn("Failed to initialize skills manager", "error", err)
+	} else {
+		app.Skills = skillsMgr
+		logging.Info("Skills manager initialized", "count", skillsMgr.Count())
 	}
 
 	// Initialize theme based on configuration
@@ -59,7 +71,6 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 	// Initialize LSP clients in the background
 	go app.initLSPClients(ctx)
 
-	var err error
 	app.CoderAgent, err = agent.NewAgent(
 		config.AgentCoder,
 		app.Sessions,
@@ -77,7 +88,58 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 		return nil, err
 	}
 
+	// Set skills manager on the agent (if available)
+	if app.Skills != nil {
+		app.CoderAgent.SetSkillsManager(&skillsAgentWrapper{manager: app.Skills})
+	}
+
 	return app, nil
+}
+
+// skillsAgentWrapper adapts skills.Manager to agent.SkillsManager interface
+type skillsAgentWrapper struct {
+	manager *skills.Manager
+}
+
+func (w *skillsAgentWrapper) MatchSkills(input string) []agent.SkillMatchResult {
+	matches := w.manager.MatchSkills(input)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	// Convert skills.MatchResult to agent.SkillMatchResult
+	result := make([]agent.SkillMatchResult, len(matches))
+	for i, m := range matches {
+		result[i] = agent.SkillMatchResult{
+			SkillName: m.SkillName,
+			Score:     m.Score,
+			Reason:    m.Reason,
+		}
+	}
+	return result
+}
+
+func (w *skillsAgentWrapper) GetSkillContext(matches []agent.SkillMatchResult) string {
+	if len(matches) == 0 {
+		return ""
+	}
+
+	// Convert agent.SkillMatchResult back to skills.MatchResult
+	skillMatches := make([]skills.MatchResult, len(matches))
+	for i, m := range matches {
+		skillMatches[i] = skills.MatchResult{
+			SkillName: m.SkillName,
+			Score:     m.Score,
+			Reason:    m.Reason,
+		}
+	}
+
+	// Use the manager's GetSkillContext which handles the index internally
+	return w.manager.GetSkillContext(skillMatches)
+}
+
+func (w *skillsAgentWrapper) GetSkillsSummary() string {
+	return w.manager.BuildSkillsSummary()
 }
 
 // initTheme sets the application theme based on the configuration

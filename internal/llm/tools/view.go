@@ -95,6 +95,10 @@ func (v *viewTool) Info() ToolInfo {
 	}
 }
 
+func (v *viewTool) IsReadOnly() bool {
+	return true
+}
+
 // Run implements Tool.
 func (v *viewTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error) {
 	var params ViewParams
