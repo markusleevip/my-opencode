@@ -57,6 +57,9 @@ type Provider interface {
 	StreamResponse(ctx context.Context, messages []message.Message, tools []tools.BaseTool) <-chan ProviderEvent
 
 	Model() models.Model
+
+	// AppendSystemMessage appends additional content to the provider's system message
+	AppendSystemMessage(content string)
 }
 
 type providerClientOptions struct {
@@ -222,6 +225,10 @@ func (p *baseProvider[C]) Model() models.Model {
 func (p *baseProvider[C]) StreamResponse(ctx context.Context, messages []message.Message, tools []tools.BaseTool) <-chan ProviderEvent {
 	messages = p.cleanMessages(messages)
 	return p.client.stream(ctx, messages, tools)
+}
+
+func (p *baseProvider[C]) AppendSystemMessage(content string) {
+	p.options.systemMessage += content
 }
 
 func WithAPIKey(apiKey string) ProviderClientOption {

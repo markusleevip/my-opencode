@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"myopencode/internal/config"
+	"myopencode/internal/logging"
 )
 
 type PersistentShell struct {
@@ -88,6 +89,7 @@ func newPersistentShell(cwd string) *PersistentShell {
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
+		logging.Error("Failed to create stdin pipe for persistent shell", "shell", shellPath, "error", err)
 		return nil
 	}
 
@@ -95,6 +97,7 @@ func newPersistentShell(cwd string) *PersistentShell {
 
 	err = cmd.Start()
 	if err != nil {
+		logging.Error("Failed to start persistent shell", "shell", shellPath, "error", err)
 		return nil
 	}
 

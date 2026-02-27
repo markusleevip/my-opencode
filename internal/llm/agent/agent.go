@@ -1,3 +1,4 @@
+
 package agent
 
 import (
@@ -65,6 +66,7 @@ type Service interface {
 type SkillsManager interface {
 	MatchSkills(input string) []SkillMatchResult
 	GetSkillContext(matches []SkillMatchResult) string
+	GetSkillsSummary() string
 }
 
 // SkillMatchResult matches the skills.MatchResult structure
@@ -76,9 +78,9 @@ type SkillMatchResult struct {
 
 type agent struct {
 	*pubsub.Broker[AgentEvent]
-	sessions       session.Service
-	messages       message.Service
-	skillsManager  SkillsManager
+	sessions      session.Service
+	messages      message.Service
+	skillsManager SkillsManager
 
 	tools    []tools.BaseTool
 	provider provider.Provider
@@ -146,6 +148,22 @@ func (a *agent) PermissionsMode() types.PermissionsMode {
 
 func (a *agent) SetSkillsManager(manager SkillsManager) {
 	a.skillsManager = manager
+
+	// Rebuild provider with skills summary in system prompt
+	// This is necessary because the provider stores a VALUE copy of options,
+	// so we must create a new provider with the skills summary baked in.
+	if manager != nil {
+		summary := manager.GetSkillsSummary()
+		if summary != "" {
+			p, err := createAgentProvider(config.AgentCoder, a.permissionsMode, summary)
+			if err == nil {
+				a.provider = p
+				logging.Info("Rebuilt provider with skills summary in system prompt")
+			} else {
+				logging.Warn("Failed to rebuild provider with skills", "error", err)
+			}
+		}
+	}
 }
 
 // injectSkillsContext injects skills context into the system message
@@ -154,23 +172,27 @@ func injectSkillsContext(messages []message.Message, skillContext string) []mess
 		return messages
 	}
 
-	// Find existing system message
-	systemIndex := -1
-	for i, msg := range messages {
-		if msg.Role == message.System {
-			systemIndex = i
+	// Find the last User message to append the context to
+	// We use User role instead of System role because some providers (like OpenAI)
+	// ignore runtime System messages and only use their configured system prompt.
+	userIndex := -1
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == message.User {
+			userIndex = i
 			break
 		}
 	}
 
-	if systemIndex >= 0 {
-		// Append to existing system message
-		messages[systemIndex].Parts = append(messages[systemIndex].Parts, message.TextContent{Text: skillContext})
+	formattedContext := "\n\n[System Note: Relevant Skill Instructions]\n" + skillContext
+
+	if userIndex >= 0 {
+		// Append to the last user message
+		messages[userIndex].Parts = append(messages[userIndex].Parts, message.TextContent{Text: formattedContext})
 	} else {
-		// Prepend new system message with skills context
+		// Prepend a new user message with skills context
 		skillMsg := message.Message{
-			Role:  message.System,
-			Parts: []message.ContentPart{message.TextContent{Text: skillContext}},
+			Role:  message.User,
+			Parts: []message.ContentPart{message.TextContent{Text: formattedContext}},
 		}
 		messages = append([]message.Message{skillMsg}, messages...)
 	}
@@ -345,14 +367,14 @@ func (a *agent) processGeneration(ctx context.Context, sessionID, content string
 	// Append the new user message to the conversation history.
 	msgHistory := append(msgs, userMsg)
 
-	// Inject skills context if skills manager is available
-	// This adds skill guidance to the system message based on user input
+	// Inject matched skills context if skills manager is available
+	// The skills summary is already in the provider's system message (via SetSkillsManager)
+	// Here we inject the full body content of matched skills based on user input
 	if a.skillsManager != nil {
 		matches := a.skillsManager.MatchSkills(content)
 		if len(matches) > 0 {
 			skillContext := a.skillsManager.GetSkillContext(matches)
 			if skillContext != "" {
-				// Inject skills context into the first system message (or prepend if none exists)
 				msgHistory = injectSkillsContext(msgHistory, skillContext)
 				logging.Debug("Injected skills context", "skills", len(matches))
 			}
@@ -968,7 +990,7 @@ func CreateAgentProviderWithModel(agentName config.AgentName, modelID models.Mod
 	return agentProvider, nil
 }
 
-func createAgentProvider(agentName config.AgentName, mode types.PermissionsMode) (provider.Provider, error) {
+func createAgentProvider(agentName config.AgentName, mode types.PermissionsMode, extraSystemMessage ...string) (provider.Provider, error) {
 	modelID := config.ActiveModel(context.Background(), models.GPT4oMini)
 	if agentName == config.AgentTitle {
 		modelID = config.ActiveModel(context.Background(), models.GPT4oMini)
@@ -989,6 +1011,12 @@ func createAgentProvider(agentName config.AgentName, mode types.PermissionsMode)
 	// Debug logging for configuration
 	logging.InfoPersist(fmt.Sprintf("[createAgentProvider] Model: %s, Provider: %s, BaseURL from config: %q, APIKey length: %d",
 		model.ID, model.Provider, providerCfg.BaseURL, len(providerCfg.APIKey)))
+
+	// Build system message with optional extra content (e.g., skills summary)
+	systemMsg := prompt.GetAgentPrompt(agentName, model.Provider, mode)
+	for _, extra := range extraSystemMessage {
+		systemMsg += extra
+	}
 	maxTokens := model.DefaultMaxTokens
 	if agentName == config.AgentTitle {
 		maxTokens = 80
@@ -998,7 +1026,7 @@ func createAgentProvider(agentName config.AgentName, mode types.PermissionsMode)
 		provider.WithAPIKey(providerCfg.APIKey),
 		provider.WithProviderBaseURL(providerCfg.BaseURL),
 		provider.WithModel(model),
-		provider.WithSystemMessage(prompt.GetAgentPrompt(agentName, model.Provider, mode)),
+		provider.WithSystemMessage(systemMsg),
 		provider.WithMaxTokens(maxTokens),
 	}
 	if model.Provider == models.ProviderOpenAI || model.Provider == models.ProviderLocal && model.CanReason {

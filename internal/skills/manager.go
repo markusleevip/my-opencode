@@ -1,7 +1,9 @@
 package skills
 
 import (
+	"fmt"
 	"myopencode/internal/logging"
+	"strings"
 )
 
 // Manager provides the public API for the skills system
@@ -128,4 +130,36 @@ func (m *Manager) GetSkill(name string) (*Skill, bool) {
 		return nil, false
 	}
 	return m.index.Get(name)
+}
+
+// BuildSkillsSummary generates a summary of all loaded skills for the system prompt.
+// This tells the LLM what skills are available so it can inform the user.
+func (m *Manager) BuildSkillsSummary() string {
+	if m == nil || m.index == nil {
+		return ""
+	}
+
+	skillsList := m.index.List()
+	if len(skillsList) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n<skills>\n")
+	sb.WriteString("You can use specialized 'skills' to help you with complex tasks. Each skill has a name and a description listed below.\n\n")
+	sb.WriteString("Skills are folders of instructions, scripts, and resources that extend your capabilities for specialized tasks. Each skill folder contains:\n")
+	sb.WriteString("- **SKILL.md** (required): The main instruction file with YAML frontmatter (name, description) and detailed markdown instructions\n\n")
+	sb.WriteString("If a skill seems relevant to the user's current task, you should follow the skill's guidance when responding.\n\n")
+	sb.WriteString("Available skills:\n")
+
+	for _, skill := range skillsList {
+		desc := skill.Metadata.Description
+		if len(desc) > 200 {
+			desc = desc[:200] + "..."
+		}
+		sb.WriteString(fmt.Sprintf("- %s (%s): %s\n", skill.Metadata.Name, skill.Path, desc))
+	}
+
+	sb.WriteString("</skills>\n")
+	return sb.String()
 }

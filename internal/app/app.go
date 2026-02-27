@@ -138,6 +138,10 @@ func (w *skillsAgentWrapper) GetSkillContext(matches []agent.SkillMatchResult) s
 	return w.manager.GetSkillContext(skillMatches)
 }
 
+func (w *skillsAgentWrapper) GetSkillsSummary() string {
+	return w.manager.BuildSkillsSummary()
+}
+
 // initTheme sets the application theme based on the configuration
 func (app *App) initTheme() {
 	cfg := config.Get()
