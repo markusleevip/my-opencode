@@ -57,12 +57,28 @@ type Service interface {
 	Summarize(ctx context.Context, sessionID string) error
 	SetPermissionsMode(mode types.PermissionsMode)
 	PermissionsMode() types.PermissionsMode
+	SetSkillsManager(manager SkillsManager)
+}
+
+// SkillsManager defines the interface for skills functionality
+// This interface avoids direct dependency on the skills package
+type SkillsManager interface {
+	MatchSkills(input string) []SkillMatchResult
+	GetSkillContext(matches []SkillMatchResult) string
+}
+
+// SkillMatchResult matches the skills.MatchResult structure
+type SkillMatchResult struct {
+	SkillName string
+	Score     float64
+	Reason    string
 }
 
 type agent struct {
 	*pubsub.Broker[AgentEvent]
-	sessions session.Service
-	messages message.Service
+	sessions       session.Service
+	messages       message.Service
+	skillsManager  SkillsManager
 
 	tools    []tools.BaseTool
 	provider provider.Provider
@@ -126,6 +142,40 @@ func (a *agent) SetPermissionsMode(mode types.PermissionsMode) {
 
 func (a *agent) PermissionsMode() types.PermissionsMode {
 	return a.permissionsMode
+}
+
+func (a *agent) SetSkillsManager(manager SkillsManager) {
+	a.skillsManager = manager
+}
+
+// injectSkillsContext injects skills context into the system message
+func injectSkillsContext(messages []message.Message, skillContext string) []message.Message {
+	if skillContext == "" {
+		return messages
+	}
+
+	// Find existing system message
+	systemIndex := -1
+	for i, msg := range messages {
+		if msg.Role == message.System {
+			systemIndex = i
+			break
+		}
+	}
+
+	if systemIndex >= 0 {
+		// Append to existing system message
+		messages[systemIndex].Parts = append(messages[systemIndex].Parts, message.TextContent{Text: skillContext})
+	} else {
+		// Prepend new system message with skills context
+		skillMsg := message.Message{
+			Role:  message.System,
+			Parts: []message.ContentPart{message.TextContent{Text: skillContext}},
+		}
+		messages = append([]message.Message{skillMsg}, messages...)
+	}
+
+	return messages
 }
 
 func (a *agent) Model() models.Model {
@@ -294,6 +344,20 @@ func (a *agent) processGeneration(ctx context.Context, sessionID, content string
 	}
 	// Append the new user message to the conversation history.
 	msgHistory := append(msgs, userMsg)
+
+	// Inject skills context if skills manager is available
+	// This adds skill guidance to the system message based on user input
+	if a.skillsManager != nil {
+		matches := a.skillsManager.MatchSkills(content)
+		if len(matches) > 0 {
+			skillContext := a.skillsManager.GetSkillContext(matches)
+			if skillContext != "" {
+				// Inject skills context into the first system message (or prepend if none exists)
+				msgHistory = injectSkillsContext(msgHistory, skillContext)
+				logging.Debug("Injected skills context", "skills", len(matches))
+			}
+		}
+	}
 
 	for {
 		// Check for cancellation before each iteration
