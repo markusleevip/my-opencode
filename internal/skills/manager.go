@@ -8,15 +8,20 @@ import (
 
 // Manager provides the public API for the skills system
 type Manager struct {
-	index  *SkillIndex
-	engine *TriggerEngine
+	index      *SkillIndex
+	engine     *TriggerEngine
+	workingDir string
 }
 
 // NewManager creates a new skills manager and automatically loads skills
-func NewManager() (*Manager, error) {
+func NewManager(workingDir ...string) (*Manager, error) {
 	manager := &Manager{
 		index:  NewSkillIndex(),
 		engine: &TriggerEngine{},
+	}
+
+	if len(workingDir) > 0 {
+		manager.workingDir = workingDir[0]
 	}
 
 	// Auto-load skills (non-blocking, errors are logged but don't fail initialization)
@@ -30,7 +35,14 @@ func NewManager() (*Manager, error) {
 // AutoLoad automatically discovers and loads all skills
 func (m *Manager) AutoLoad() error {
 	// Discover skills from standard paths
-	skillPaths, err := DiscoverSkills()
+	var skillPaths []string
+	var err error
+
+	if m.workingDir != "" {
+		skillPaths, err = DiscoverSkills(m.workingDir)
+	} else {
+		skillPaths, err = DiscoverSkills()
+	}
 	if err != nil {
 		return err
 	}

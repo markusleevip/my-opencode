@@ -57,7 +57,7 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 	}
 
 	// Initialize skills manager (auto-discovers and loads skills)
-	skillsMgr, err := skills.NewManager()
+	skillsMgr, err := skills.NewManager(config.Get().WorkingDir)
 	if err != nil {
 		logging.Warn("Failed to initialize skills manager", "error", err)
 	} else {

@@ -22,8 +22,9 @@ func ShouldShowInitDialog() (bool, error) {
 		return false, fmt.Errorf("config not loaded")
 	}
 
-	// Create the flag file path
-	flagFilePath := filepath.Join(cfg.Data.Directory, InitFlagFilename)
+	// Create the flag file path using project .my-opencode directory regardless of where data is stored
+	projectDir := filepath.Join(cfg.WorkingDir, DefaultDataDirectory)
+	flagFilePath := filepath.Join(projectDir, InitFlagFilename)
 
 	// Check if the flag file exists
 	_, err := os.Stat(flagFilePath)
@@ -46,8 +47,14 @@ func MarkProjectInitialized() error {
 	if cfg == nil {
 		return fmt.Errorf("config not loaded")
 	}
-	// Create the flag file path
-	flagFilePath := filepath.Join(cfg.Data.Directory, InitFlagFilename)
+
+	// Create the flag file path using project .my-opencode directory
+	projectDir := filepath.Join(cfg.WorkingDir, DefaultDataDirectory)
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create project data directory: %w", err)
+	}
+
+	flagFilePath := filepath.Join(projectDir, InitFlagFilename)
 
 	// Create an empty file to mark the project as initialized
 	file, err := os.Create(flagFilePath)
@@ -58,4 +65,3 @@ func MarkProjectInitialized() error {
 
 	return nil
 }
-

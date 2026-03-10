@@ -52,7 +52,7 @@ func LoadCustomCommands() ([]Command, error) {
 		}
 	}
 
-	// Load commands from $HOME/.my-opencode/commands
+	// Load global commands from ~/.my-opencode/commands
 	home, err := os.UserHomeDir()
 	if err == nil {
 		homeCommandsDir := filepath.Join(home, config.ConfigDirName, "commands")
@@ -65,14 +65,26 @@ func LoadCustomCommands() ([]Command, error) {
 		}
 	}
 
-	// Load project commands from data directory
+	// Load project commands from data directory (if it's different from home directory)
 	projectCommandsDir := filepath.Join(cfg.Data.Directory, "commands")
-	projectCommands, err := loadCommandsFromDir(projectCommandsDir, ProjectCommandPrefix)
-	if err != nil {
-		// Log error but return what we have so far
-		fmt.Printf("Warning: failed to load project commands: %v\n", err)
-	} else {
-		commands = append(commands, projectCommands...)
+
+	// Only load project commands if the project dir is different from global dir
+	homeCommandsDir := ""
+	if home != "" {
+		homeCommandsDir = filepath.Join(home, config.ConfigDirName, "commands")
+	}
+
+	if projectCommandsDir != homeCommandsDir {
+		projectCommands, err := loadCommandsFromDir(projectCommandsDir, ProjectCommandPrefix)
+		if err != nil {
+			// Log error but return what we have so far
+			fmt.Printf("Warning: failed to load project commands: %v\n", err)
+		} else {
+			// Overwrite any global commands with the same name
+			// To keep it simple, we just append them here. The TUI will show both
+			// if they have different prefixes or filenames.
+			commands = append(commands, projectCommands...)
+		}
 	}
 
 	return commands, nil

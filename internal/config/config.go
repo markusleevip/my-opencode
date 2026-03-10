@@ -304,7 +304,14 @@ func configureViper() {
 
 // setDefaults configures default values for configuration options.
 func setDefaults(debug bool) {
-	V.SetDefault("data::directory", DefaultDataDirectory)
+	// Resolve data directory to an absolute path under user home
+	homeDir, err := os.UserHomeDir()
+	if err == nil {
+		V.SetDefault("data::directory", filepath.Join(homeDir, DefaultDataDirectory))
+	} else {
+		V.SetDefault("data::directory", DefaultDataDirectory)
+	}
+
 	V.SetDefault("contextPaths", defaultContextPaths)
 	V.SetDefault("tui::theme", "opencode")
 	V.SetDefault("autoCompact", true)

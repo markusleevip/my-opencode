@@ -62,7 +62,23 @@ func getContextFromPaths() string {
 			contextPaths = cfg.ContextPaths
 		)
 
+		// Process project-level context paths
 		contextContent = processContextPaths(workDir, contextPaths)
+
+		// Also process global context paths from ~/.my-opencode/
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			globalContextDir := filepath.Join(homeDir, ".my-opencode")
+			globalPaths := []string{"opencode.md", "context.md", "rules.md"}
+			globalContent := processContextPaths(globalContextDir, globalPaths)
+			if globalContent != "" {
+				if contextContent != "" {
+					contextContent = globalContent + "\n" + contextContent
+				} else {
+					contextContent = globalContent
+				}
+			}
+		}
 	})
 
 	return contextContent

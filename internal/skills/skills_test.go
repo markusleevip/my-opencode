@@ -53,6 +53,27 @@ Test skill body content`), 0644)
 		t.Errorf("DiscoverSkills should return 1 skill, got %d", len(skills))
 	}
 
+	// Test 4: Project-level skill directory
+	projectDir := filepath.Join(tmpDir, "project")
+	projectSkillsDir := filepath.Join(projectDir, ".opencode", "skills")
+	validProjectSkillDir := filepath.Join(projectSkillsDir, "project-test-skill")
+	os.MkdirAll(validProjectSkillDir, 0755)
+	projectSkillMdPath := filepath.Join(validProjectSkillDir, "SKILL.md")
+	os.WriteFile(projectSkillMdPath, []byte(`---
+name: project-test-skill
+description: A project level test skill for testing
+---
+Test project skill body content`), 0644)
+
+	// Since we specify projectDir, we expect 2 skills (1 global + 1 project)
+	skills, err = DiscoverSkills(projectDir)
+	if err != nil {
+		t.Errorf("DiscoverSkills should not error for valid project skill: %v", err)
+	}
+	if len(skills) != 2 {
+		t.Errorf("DiscoverSkills with project dir should return 2 skills, got %d", len(skills))
+	}
+
 	// Restore original path
 	defaultSkillPaths[0] = originalPath
 }

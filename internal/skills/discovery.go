@@ -12,10 +12,21 @@ var defaultSkillPaths = []string{
 	"~/.my-opencode/skills", // Cross-platform: ~/.my-opencode/skills
 }
 
+// projectSkillPaths defines project-level paths to search for skills
+var projectSkillPaths = []string{
+	"skills",
+	".skills",
+	".opencode/skills",
+	".agent/skills",
+	".agents/skills",
+}
+
 // DiscoverSkills automatically discovers skills in the user's skills directory
 // Returns a list of skill directory paths that contain SKILL.md
-func DiscoverSkills() ([]string, error) {
+// Takes an optional workingDir argument to search for project-level skills
+func DiscoverSkills(workingDir ...string) ([]string, error) {
 	var skills []string
+	seen := make(map[string]bool) // Track skills by directory name to deduplicate
 
 	for _, pathPattern := range defaultSkillPaths {
 		// Expand path (handle ~ and environment variables)
@@ -46,12 +57,62 @@ func DiscoverSkills() ([]string, error) {
 
 			// Check for case-insensitive SKILL.md
 			if _, err := os.Stat(skillMdPath); err == nil {
-				skills = append(skills, skillPath)
+				if !seen[entry.Name()] {
+					skills = append(skills, skillPath)
+					seen[entry.Name()] = true
+				}
 			} else {
 				// Try lowercase skill.md for compatibility
 				skillMdPathLower := filepath.Join(skillPath, "skill.md")
 				if _, err := os.Stat(skillMdPathLower); err == nil {
-					skills = append(skills, skillPath)
+					if !seen[entry.Name()] {
+						skills = append(skills, skillPath)
+						seen[entry.Name()] = true
+					}
+				}
+			}
+		}
+	}
+
+	// Also search project-level skill paths if working directory is provided
+	if len(workingDir) > 0 && workingDir[0] != "" {
+		for _, relPath := range projectSkillPaths {
+			path := filepath.Join(workingDir[0], relPath)
+
+			// Check if directory exists
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				continue
+			}
+
+			// Read directory entries
+			entries, err := os.ReadDir(path)
+			if err != nil {
+				continue
+			}
+
+			// Find valid skills
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					continue
+				}
+
+				skillPath := filepath.Join(path, entry.Name())
+				skillMdPath := filepath.Join(skillPath, "SKILL.md")
+
+				// Check for case-insensitive SKILL.md
+				if _, err := os.Stat(skillMdPath); err == nil {
+					if !seen[entry.Name()] {
+						skills = append(skills, skillPath)
+						seen[entry.Name()] = true
+					}
+				} else {
+					skillMdPathLower := filepath.Join(skillPath, "skill.md")
+					if _, err := os.Stat(skillMdPathLower); err == nil {
+						if !seen[entry.Name()] {
+							skills = append(skills, skillPath)
+							seen[entry.Name()] = true
+						}
+					}
 				}
 			}
 		}
